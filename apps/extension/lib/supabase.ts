@@ -64,11 +64,19 @@ export async function consumeOAuthRedirect(): Promise<boolean> {
   if (!accessToken || tokenType !== "bearer") return false
 
   const expiresAt = expiresIn ? Math.floor(Date.now() / 1000) + Number(expiresIn) : 0
+  let email = ""
+  try {
+    const { data } = await supabase.auth.getUser(accessToken)
+    email = data.user?.email || ""
+  } catch {
+    email = ""
+  }
+
   await setAuthState({
     accessToken,
     refreshToken: refreshToken || "",
     expiresAt,
-    email: "",
+    email,
     plan: "unknown"
   })
 

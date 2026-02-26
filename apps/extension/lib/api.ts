@@ -125,7 +125,7 @@ export async function generateContent(
   payload: GenerateRequest,
   options: {
     onToken: (token: string) => void
-    onError: (message: string) => void
+    onError: (message: string, upgradeUrl?: string) => void
     byokKey?: string
   }
 ): Promise<void> {
@@ -151,14 +151,20 @@ export async function generateContent(
   })
 
   if (!response.ok || !response.body) {
-    const message = await response.text()
-    options.onError(message || "生成失败")
+    const text = await response.text()
+    try {
+      const data = JSON.parse(text) as { message?: string; upgradeUrl?: string }
+      options.onError(data.message || "生成失败", data.upgradeUrl)
+    } catch {
+      options.onError(text || "生成失败")
+    }
     return
   }
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ""
+  let currentEvent: string = "message"
 
   while (true) {
     const { value, done } = await reader.read()
@@ -167,12 +173,25 @@ export async function generateContent(
 
     let index = buffer.indexOf("\n")
     while (index !== -1) {
-      const line = buffer.slice(0, index).trim()
+      const line = buffer.slice(0, index)
       buffer = buffer.slice(index + 1)
 
-      if (line.startsWith("data:")) {
-        const data = line.replace(/^data:\s*/, "")
+      const trimmed = line.trim()
+      if (!trimmed) {
+        currentEvent = "message"
+        index = buffer.indexOf("\n")
+        continue
+      }
+
+      if (trimmed.startsWith("event:")) {
+        currentEvent = trimmed.replace(/^event:\s*/, "")
+      } else if (trimmed.startsWith("data:")) {
+        const data = trimmed.replace(/^data:\s*/, "")
         if (data === "[DONE]") return
+        if (currentEvent === "error") {
+          options.onError(data || "生成失败")
+          return
+        }
         options.onToken(data)
       }
       index = buffer.indexOf("\n")

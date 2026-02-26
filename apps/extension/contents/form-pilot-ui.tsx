@@ -41,6 +41,7 @@ export default function FormPilotUi() {
   const [reply, setReply] = useState("")
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState("")
+  const [upgradeUrl, setUpgradeUrl] = useState("")
   const [personas, setPersonas] = useState<UserPersona[]>([])
   const [selectedPersonaId, setSelectedPersonaId] = useState("")
   const [userHint, setUserHint] = useState("")
@@ -133,15 +134,27 @@ export default function FormPilotUi() {
   }, [openManual])
 
   useEffect(() => {
+    const storageListener = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      areaName: string
+    ) => {
+      if (areaName !== "local") return
+      if (changes.authState) {
+        setAuthState((changes.authState.newValue as AuthState | null) || null)
+      }
+    }
+
     document.addEventListener("focusin", handleFocus)
     window.addEventListener("scroll", handleScroll, { passive: true })
     window.addEventListener("resize", handleScroll)
     refreshAccount()
+    chrome.storage.onChanged.addListener(storageListener)
 
     return () => {
       document.removeEventListener("focusin", handleFocus)
       window.removeEventListener("scroll", handleScroll)
       window.removeEventListener("resize", handleScroll)
+      chrome.storage.onChanged.removeListener(storageListener)
       if (copyTimerRef.current) {
         window.clearTimeout(copyTimerRef.current)
       }
@@ -159,6 +172,7 @@ export default function FormPilotUi() {
     setReply("")
     setIsGenerating(true)
     setError("")
+    setUpgradeUrl("")
 
     const parser = createStreamParser({
       onTranslation: (text) => setTranslation((prev) => prev + text),
@@ -194,7 +208,10 @@ export default function FormPilotUi() {
         },
         {
           onToken: (token) => parser.push(token),
-          onError: (message) => setError(message),
+          onError: (message, url) => {
+            setError(message)
+            if (url) setUpgradeUrl(url)
+          },
           byokKey: plan === "pro" ? config.byokKey : undefined
         }
       )
@@ -279,7 +296,26 @@ export default function FormPilotUi() {
                   {reply || (isGenerating ? "正在生成..." : "点击生成")}
                 </div>
 
-                {error && <div className="text-xs text-red-600">{error}</div>}
+                {error && (
+                  <div className="space-y-2">
+                    <div className="text-xs text-red-600">{error}</div>
+                    {(upgradeUrl || plan === "free") && (
+                      <button
+                        type="button"
+                        className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-700"
+                        onClick={() => {
+                          if (upgradeUrl) {
+                            chrome.tabs.create({ url: upgradeUrl })
+                          } else {
+                            chrome.runtime.openOptionsPage()
+                          }
+                        }}
+                      >
+                        升级 Pro
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2">
                   <button
