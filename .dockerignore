@@ -12,6 +12,9 @@ coverage/
 *.swp
 .turbo/
 .plasmo/
-# required: docs/secrets not tracked
+# required: docs/secrets must not be packaged
 /docs/
 /secrets/
+.git/
+.github/
+.vscode/

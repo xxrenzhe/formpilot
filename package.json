@@ -1,0 +1,14 @@
+{
+  "name": "formpilot",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:extension": "npm --workspace apps/extension run dev",
+    "dev:bff": "npm --workspace apps/bff run dev",
+    "build": "npm -ws run build",
+    "lint": "npm -ws run lint"
+  }
+}

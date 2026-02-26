@@ -1,0 +1,27 @@
+{
+  "name": "@formpilot/extension",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "plasmo dev",
+    "build": "plasmo build",
+    "lint": "node -e \"console.log('skip lint')\""
+  },
+  "dependencies": {
+    "@formpilot/shared": "workspace:*",
+    "@plasmohq/storage": "^0.13.0",
+    "@supabase/supabase-js": "^2.49.1",
+    "plasmo": "^0.89.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.280",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.40",
+    "tailwindcss": "^3.4.10",
+    "typescript": "^5.5.4"
+  }
+}
