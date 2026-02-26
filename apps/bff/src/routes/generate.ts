@@ -74,6 +74,14 @@ export async function generateHandler(c: Context): Promise<Response> {
   const now = new Date()
   const upgradeUrl = `${env.appBaseUrl}/pricing`
 
+  if (payload.data.mode === "longDoc" && userRecord.plan !== "pro") {
+    return jsonError(c, 403, {
+      errorCode: "FORBIDDEN",
+      message: "长文档生成仅对 Pro 开放",
+      upgradeUrl
+    })
+  }
+
   if (userRecord.plan === "free") {
     const used = await getMonthlyUsageCount(userRecord.id, now)
     if (used >= FREE_MONTHLY_LIMIT) {

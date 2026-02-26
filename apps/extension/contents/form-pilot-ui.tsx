@@ -2,10 +2,11 @@ import "../style.css"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { PlasmoCSConfig } from "plasmo"
-import type { FieldContext, GenerateMode, UserPersona, UserPlan, UsageSummary } from "@formpilot/shared"
+import type { FieldContext, GenerateMode, PageContext, UserPersona, UserPlan, UsageSummary } from "@formpilot/shared"
 import { isPiiField } from "@formpilot/shared"
 import { extractFieldContext, extractPageContext, detectLongDoc } from "./extractor"
 import { extractGlobalContext } from "./globalContext"
+import FormPilotPanel from "./form-pilot-panel"
 import { createStreamParser } from "../lib/streamParser"
 import { fetchPersonas, fetchUsage, generateContent } from "../lib/api"
 import { cachePersonas, getAppConfig, getAuthState, getCachedPersonas, setPlan } from "../lib/storage"
@@ -16,7 +17,34 @@ export const config: PlasmoCSConfig = {
 }
 
 const PANEL_WIDTH = 380
-const PREVIEW_LIMIT = 100
+
+interface SlashContext {
+  pageContext: PageContext
+  fieldContext: FieldContext
+  persona: UserPersona
+}
+
+function resolveSlashCommands(input: string, context: SlashContext): string {
+  let output = input
+  const replacements: Record<string, string> = {
+    "/page_title": context.pageContext.title,
+    "/page_url": context.pageContext.url || "",
+    "/page_desc": context.pageContext.description,
+    "/page_lang": context.pageContext.lang,
+    "/field_label": context.fieldContext.label,
+    "/field_placeholder": context.fieldContext.placeholder,
+    "/persona_name": context.persona.name,
+    "/my_company": context.persona.companyInfo,
+    "/my_role": context.persona.coreIdentity
+  }
+
+  Object.entries(replacements).forEach(([key, value]) => {
+    if (!value) return
+    output = output.split(key).join(value)
+  })
+
+  return output
+}
 
 function isSupportedInput(target: HTMLElement): target is HTMLInputElement | HTMLTextAreaElement {
   const tag = target.tagName.toLowerCase()
@@ -58,7 +86,7 @@ export default function FormPilotUi() {
   const panelPosition = useMemo(() => calcPosition(anchorRect), [anchorRect])
   const activeElementRef = useRef<HTMLElement | null>(null)
   const copyTimerRef = useRef<number | null>(null)
-  const isLongDocLocked = plan === "free" && mode === "longDoc"
+  const panelRootRef = useRef<HTMLDivElement | null>(null)
 
   const refreshAccount = useCallback(async () => {
     const auth = await getAuthState()
@@ -84,10 +112,7 @@ export default function FormPilotUi() {
     }
   }, [])
 
-  const handleFocus = useCallback((event: FocusEvent) => {
-    const target = event.target as HTMLElement | null
-    if (!target || !isSupportedInput(target)) return
-
+  const activateField = useCallback((target: HTMLElement, openPanel: boolean) => {
     activeElementRef.current = target
     const field = extractFieldContext(target)
     setActiveField(field)
@@ -96,11 +121,21 @@ export default function FormPilotUi() {
     setMode(detectLongDoc(field) || field.type === "file" ? "longDoc" : "shortText")
     const pii = isPiiField(field)
     setIsPii(pii)
-    setPanelOpen(pii)
+    setPanelOpen(openPanel || pii)
     setTranslation("")
     setReply("")
     setError("")
+    setUpgradeUrl("")
   }, [])
+
+  const handleFocus = useCallback(
+    (event: FocusEvent) => {
+      const target = event.target as HTMLElement | null
+      if (!target || !isSupportedInput(target)) return
+      activateField(target, false)
+    },
+    [activateField]
+  )
 
   const handleScroll = useCallback(() => {
     const target = activeElementRef.current
@@ -125,6 +160,7 @@ export default function FormPilotUi() {
     setTranslation("")
     setReply("")
     setError("")
+    setUpgradeUrl("")
   }, [])
 
   useEffect(() => {
@@ -136,6 +172,24 @@ export default function FormPilotUi() {
     chrome.runtime.onMessage.addListener(listener)
     return () => chrome.runtime.onMessage.removeListener(listener)
   }, [openManual])
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return
+      if (event.key.toLowerCase() !== "m") return
+      if (event.repeat) return
+      const target = event.target as HTMLElement | null
+      if (!target) return
+      const path = event.composedPath()
+      if (panelRootRef.current && path.includes(panelRootRef.current)) return
+      if (!isSupportedInput(target)) return
+      event.preventDefault()
+      activateField(target, true)
+    }
+
+    document.addEventListener("keydown", handleShortcut, true)
+    return () => document.removeEventListener("keydown", handleShortcut, true)
+  }, [activateField])
 
   useEffect(() => {
     const storageListener = (
@@ -173,81 +227,84 @@ export default function FormPilotUi() {
     }
   }, [handleFocus, handleScroll, refreshAccount])
 
-  const startGeneration = useCallback(async () => {
-    if (!activeField) return
-    if (!authState) {
-      setError("请先登录")
-      return
-    }
-
-    setTranslation("")
-    setReply("")
-    setIsGenerating(true)
-    setError("")
-    setUpgradeUrl("")
-
-    const parser = createStreamParser({
-      onTranslation: (text) => setTranslation((prev) => prev + text),
-      onReply: (text) =>
-        setReply((prev) => {
-          if (!isLongDocLocked) return prev + text
-          if (prev.length >= PREVIEW_LIMIT) return prev
-          const remaining = PREVIEW_LIMIT - prev.length
-          return prev + text.slice(0, Math.max(0, remaining))
-        })
-    })
-
-    try {
-      const persona = personas.find((item) => item.id === selectedPersonaId) || personas[0]
-      if (!persona) {
-        setError("请先配置人设")
+  const startGeneration = useCallback(
+    async (overrideHint?: string) => {
+      if (!activeField) return
+      if (!authState) {
+        setError("请先登录")
         return
       }
 
-      const pageContext = extractPageContext()
-      const useGlobalContext = plan === "pro"
-      const globalContext = useGlobalContext ? extractGlobalContext() : undefined
-      const config = await getAppConfig()
+      setTranslation("")
+      setReply("")
+      setIsGenerating(true)
+      setError("")
+      setUpgradeUrl("")
 
-      await generateContent(
-        {
+      const parser = createStreamParser({
+        onTranslation: (text) => setTranslation((prev) => prev + text),
+        onReply: (text) => setReply((prev) => prev + text)
+      })
+
+      try {
+        const persona = personas.find((item) => item.id === selectedPersonaId) || personas[0]
+        if (!persona) {
+          setError("请先配置人设")
+          return
+        }
+
+        const pageContext = extractPageContext()
+        const useGlobalContext = plan === "pro"
+        const globalContext = useGlobalContext ? extractGlobalContext() : undefined
+        const config = await getAppConfig()
+        const rawHint = typeof overrideHint === "string" ? overrideHint : userHint
+        const resolvedHint = resolveSlashCommands(rawHint, {
           pageContext,
           fieldContext: activeField,
-          personaId: persona.id,
-          userHint,
-          mode,
-          useGlobalContext,
-          globalContext
-        },
-        {
-          onToken: (token) => parser.push(token),
-          onError: (message, url) => {
-            setError(message)
-            if (url) setUpgradeUrl(url)
+          persona
+        })
+
+        await generateContent(
+          {
+            pageContext,
+            fieldContext: activeField,
+            personaId: persona.id,
+            userHint: resolvedHint,
+            mode,
+            useGlobalContext,
+            globalContext
           },
-          byokKey: plan === "pro" ? config.byokKey : undefined
+          {
+            onToken: (token) => parser.push(token),
+            onError: (message, url) => {
+              setError(message)
+              if (url) setUpgradeUrl(url)
+            },
+            byokKey: plan === "pro" ? config.byokKey : undefined
+          }
+        )
+        const usageData = await fetchUsage()
+        if (usageData) {
+          setUsage(usageData)
+          setPlanState(usageData.plan)
         }
-      )
-      const usageData = await fetchUsage()
-      if (usageData) {
-        setUsage(usageData)
-        setPlanState(usageData.plan)
+      } finally {
+        parser.flush()
+        setIsGenerating(false)
       }
-    } finally {
-      parser.flush()
-      setIsGenerating(false)
-    }
-  }, [activeField, authState, personas, selectedPersonaId, userHint, mode, plan])
+    },
+    [activeField, authState, personas, selectedPersonaId, userHint, mode, plan]
+  )
 
   const handleCopy = useCallback(async () => {
-    if (!reply || isLongDocLocked) return
+    if (!reply) return
     await navigator.clipboard.writeText(reply)
     setCopied(true)
     if (copyTimerRef.current) {
       window.clearTimeout(copyTimerRef.current)
     }
     copyTimerRef.current = window.setTimeout(() => setCopied(false), 2000)
-  }, [reply, isLongDocLocked])
+  }, [reply])
 
   const usageLabel = useMemo(() => {
     if (!usage) return ""
@@ -256,189 +313,47 @@ export default function FormPilotUi() {
     return `本月剩余 ${remaining} 次`
   }, [usage])
 
+  const isLoggedIn = Boolean(authState)
+
   if (!activeField && !isManualMode) return null
 
   const iconPosition = calcPosition(anchorRect)
+
   return (
-    <div className="fixed z-[2147483647]" style={{ top: 0, left: 0 }}>
-      {!panelOpen && !isPii && (
-        <button
-          type="button"
-          className="absolute flex items-center gap-2 rounded-full bg-white shadow-xl border border-storm px-3 py-2 text-xs text-ink hover:bg-mist transition"
-          style={{ top: iconPosition.top, left: iconPosition.left }}
-          onClick={() => setPanelOpen(true)}
-        >
-          <span className="text-glow">✨</span>
-          <span>FormPilot</span>
-        </button>
-      )}
-
-      {panelOpen && (
-        <div
-          className="absolute w-[380px] bg-white border border-storm rounded-2xl shadow-2xl overflow-hidden text-sm"
-          style={{ top: panelPosition.top, left: panelPosition.left }}
-        >
-          <div className="flex items-center justify-between px-4 py-3 bg-mist border-b border-storm">
-            <div className="font-semibold">FormPilot</div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="text-xs text-slate-500 hover:text-ink"
-                onClick={() => setPanelOpen(false)}
-              >
-                收起
-              </button>
-            </div>
-          </div>
-
-          <div className="px-4 py-3 space-y-3">
-            {isPii && (
-              <div className="rounded-lg bg-slate-50 border border-storm p-3 text-xs text-slate-600">
-                🔒 检测到隐私字段，请手动输入。FormPilot 不会读取或上传。
-              </div>
-            )}
-
-            {!isPii && (
-              <>
-                {!authState && (
-                  <div className="rounded-lg border border-storm bg-slate-50 p-3 text-xs text-slate-600 space-y-2">
-                    <div>请先登录以继续使用 FormPilot。</div>
-                    <button
-                      type="button"
-                      className="rounded-md bg-ocean text-white px-2 py-1 text-xs"
-                      onClick={() => chrome.runtime.openOptionsPage()}
-                    >
-                      打开登录页
-                    </button>
-                  </div>
-                )}
-                {translation && (
-                  <div className="rounded-lg bg-slate-50 border border-storm p-3 text-xs text-slate-600 whitespace-pre-wrap">
-                    {translation}
-                  </div>
-                )}
-                {usageLabel && (
-                  <div className="flex items-center justify-between text-[11px] text-slate-500">
-                    <span>{plan === "pro" ? "Pro" : "Free"}</span>
-                    <span>{usageLabel}</span>
-                  </div>
-                )}
-                <div className="relative rounded-lg border border-storm p-3 min-h-[120px] text-ink whitespace-pre-wrap">
-                  <div className={isLongDocLocked && reply ? "pointer-events-none select-none" : ""}>
-                    {reply || (isGenerating ? "正在生成..." : "点击生成")}
-                  </div>
-                  {isLongDocLocked && reply && (
-                    <div className="absolute inset-0 flex items-end rounded-lg bg-gradient-to-t from-white via-white/80 to-transparent backdrop-blur-sm">
-                      <div className="flex w-full items-center justify-between px-3 py-2 text-xs text-amber-700">
-                        <span>仅预览前 {PREVIEW_LIMIT} 字，升级解锁完整文档</span>
-                        <button
-                          type="button"
-                          className="text-amber-700 underline"
-                          onClick={() => chrome.runtime.openOptionsPage()}
-                        >
-                          升级
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {error && (
-                  <div className="space-y-2">
-                    <div className="text-xs text-red-600">{error}</div>
-                    {(upgradeUrl || plan === "free") && (
-                      <button
-                        type="button"
-                        className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-700"
-                        onClick={() => {
-                          if (upgradeUrl) {
-                            chrome.tabs.create({ url: upgradeUrl })
-                          } else {
-                            chrome.runtime.openOptionsPage()
-                          }
-                        }}
-                      >
-                        升级 Pro
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="flex-1 rounded-lg bg-ocean text-white px-3 py-2 text-xs font-semibold"
-                    onClick={startGeneration}
-                    disabled={isGenerating || !authState}
-                  >
-                    {isGenerating ? "生成中" : "开始生成"}
-                  </button>
-                  <button
-                    type="button"
-                    className={`rounded-lg border border-storm px-3 py-2 text-xs ${
-                      isLongDocLocked ? "opacity-50 cursor-not-allowed" : ""
-                    }`}
-                    onClick={handleCopy}
-                    disabled={isLongDocLocked}
-                  >
-                    {copied ? "已复制" : "一键复制"}
-                  </button>
-                </div>
-
-                <div className="rounded-xl bg-slate-50 border border-storm p-3 space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span>当前模式</span>
-                    <span className="font-semibold text-ink">{mode === "longDoc" ? "文档" : "短文本"}</span>
-                  </div>
-                  <select
-                    className="w-full rounded-md border border-storm bg-white px-2 py-1 text-xs"
-                    value={mode}
-                    onChange={(event) => setMode(event.target.value as GenerateMode)}
-                  >
-                    <option value="shortText">短文本</option>
-                    <option value="longDoc">长文档</option>
-                  </select>
-                  <select
-                    className="w-full rounded-md border border-storm bg-white px-2 py-1 text-xs"
-                    value={selectedPersonaId}
-                    onChange={(event) => setSelectedPersonaId(event.target.value)}
-                  >
-                    {personas.map((persona) => (
-                      <option key={persona.id} value={persona.id}>
-                        {persona.name}
-                      </option>
-                    ))}
-                  </select>
-                  <textarea
-                    className="w-full rounded-md border border-storm bg-white px-2 py-1 text-xs"
-                    rows={3}
-                    placeholder="补充要求..."
-                    value={userHint}
-                    onChange={(event) => setUserHint(event.target.value)}
-                  />
-                </div>
-
-                {plan === "free" && (
-                  <div className="flex items-center justify-between text-xs text-amber-600">
-                    <span>
-                      {mode === "longDoc"
-                        ? "长文档仅展示预览，升级解锁完整内容"
-                        : "升级 Pro 解锁全站上下文与无限生成"}
-                    </span>
-                    <button
-                      type="button"
-                      className="text-xs text-amber-700 underline"
-                      onClick={() => chrome.runtime.openOptionsPage()}
-                    >
-                      升级
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+    <FormPilotPanel
+      panelOpen={panelOpen}
+      isPii={isPii}
+      translation={translation}
+      reply={reply}
+      isGenerating={isGenerating}
+      error={error}
+      upgradeUrl={upgradeUrl}
+      personas={personas}
+      selectedPersonaId={selectedPersonaId}
+      userHint={userHint}
+      mode={mode}
+      plan={plan}
+      usageLabel={usageLabel}
+      copied={copied}
+      iconPosition={iconPosition}
+      panelPosition={panelPosition}
+      isLoggedIn={isLoggedIn}
+      rootRef={panelRootRef}
+      onOpenPanel={() => setPanelOpen(true)}
+      onClosePanel={() => setPanelOpen(false)}
+      onStartGeneration={startGeneration}
+      onCopy={handleCopy}
+      onSelectPersona={setSelectedPersonaId}
+      onUserHintChange={setUserHint}
+      onModeChange={setMode}
+      onOpenOptions={() => chrome.runtime.openOptionsPage()}
+      onOpenUpgrade={(url) => {
+        if (url) {
+          chrome.tabs.create({ url })
+        } else {
+          chrome.runtime.openOptionsPage()
+        }
+      }}
+    />
   )
 }
