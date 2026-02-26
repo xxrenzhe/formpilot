@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { supabase } from "../lib/supabase"
+import { getSupabaseClient } from "../lib/supabase"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -40,6 +40,7 @@ export default function LoginPage() {
               setStatus("")
               setLoading(true)
               try {
+                const supabase = getSupabaseClient()
                 const { error } = await supabase.auth.signInWithPassword({ email, password })
                 if (error) throw error
                 router.replace("/analytics")

@@ -4,7 +4,7 @@ import type { ReactNode } from "react"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import NavLink from "../components/NavLink"
-import { supabase } from "../lib/supabase"
+import { getSupabaseClient } from "../lib/supabase"
 import { useAuth } from "../lib/auth"
 import { ApiError, fetchSystemHealth } from "../lib/api"
 
@@ -34,6 +34,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
           setAccessDenied(true)
           setAccessChecked(true)
+          const supabase = getSupabaseClient()
           supabase.auth.signOut().finally(() => router.replace("/login"))
           return
         }
@@ -77,6 +78,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           className="button ghost"
           style={{ marginTop: 12 }}
           onClick={async () => {
+            const supabase = getSupabaseClient()
             await supabase.auth.signOut()
             router.replace("/login")
           }}
