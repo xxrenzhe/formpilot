@@ -6,16 +6,18 @@ interface StreamGenerateParams {
   userPrompt: string
   onToken: (token: string) => Promise<void>
   apiKeyOverride?: string
+  modelOverride?: string
 }
 
 export async function streamGenerate(params: StreamGenerateParams): Promise<void> {
   const apiKey = params.apiKeyOverride || env.aiApiKey
+  const model = params.modelOverride || env.aiModel
 
   if (env.aiProvider === "openai") {
     return streamOpenAI({
       apiKey,
       baseUrl: env.aiBaseUrl,
-      model: env.aiModel,
+      model,
       systemPrompt: params.systemPrompt,
       userPrompt: params.userPrompt,
       onToken: params.onToken

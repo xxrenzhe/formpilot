@@ -127,6 +127,10 @@ export async function generateHandler(c: Context): Promise<Response> {
   const userPrompt = buildUserPrompt(payload.data.mode)
   const byokKey = c.req.header("x-byok-key") || ""
   const apiKeyOverride = userRecord.plan === "pro" && byokKey ? byokKey : undefined
+  const modelOverride =
+    userRecord.plan === "pro"
+      ? env.aiModelPro || env.aiModel
+      : env.aiModelFree || env.aiModel
 
   return streamSSE(c, async (stream) => {
     try {
@@ -136,7 +140,8 @@ export async function generateHandler(c: Context): Promise<Response> {
         onToken: async (token) => {
           await stream.writeSSE({ data: token })
         },
-        apiKeyOverride
+        apiKeyOverride,
+        modelOverride
       })
       await recordUsage({
         userId: userRecord.id,
