@@ -290,8 +290,19 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
                     已读取上下文 {contextMeta.total} 段，省略 {contextMeta.omitted} 段
                   </div>
                 )}
-                <div className="rounded-lg border border-storm p-3 min-h-[120px] text-ink whitespace-pre-wrap">
+                <div className="relative rounded-lg border border-storm p-3 min-h-[120px] text-ink whitespace-pre-wrap overflow-hidden">
                   {reply || (isGenerating ? "正在生成..." : "点击生成")}
+                  {isPreview && reply && (
+                    <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-white/90 via-white/60 to-transparent backdrop-blur-[2px] flex items-end justify-center pb-2">
+                      <button
+                        type="button"
+                        className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-[11px] text-amber-700"
+                        onClick={() => onOpenUpgrade(upgradeUrl)}
+                      >
+                        升级解锁完整文档
+                      </button>
+                    </div>
+                  )}
                 </div>
                 {isPreview && reply && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-700">
