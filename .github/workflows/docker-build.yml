@@ -1,0 +1,73 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check schema/types consistency
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.before }}"
+          if [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "No base SHA found (likely first push). Skipping schema/type check."
+            exit 0
+          fi
+
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "${{ github.sha }}")
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          if echo "$CHANGED_FILES" | grep -q '^infra/supabase/schema.sql$'; then
+            if ! echo "$CHANGED_FILES" | grep -q '^packages/shared/src/types.ts$'; then
+              echo "infra/supabase/schema.sql changed without updating packages/shared/src/types.ts"
+              exit 1
+            fi
+          fi
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=prod-latest,enable={{is_default_branch}}
+            type=raw,value=prod-${{ github.sha }}
+            type=semver,pattern=prod-{{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: infra/docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
