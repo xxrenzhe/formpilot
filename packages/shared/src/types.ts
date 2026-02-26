@@ -35,6 +35,7 @@ export interface GenerateRequest {
   mode: GenerateMode
   useGlobalContext?: boolean
   globalContext?: string
+  previewOnly?: boolean
 }
 
 export interface GenerateErrorResponse {

@@ -44,11 +44,15 @@ const generateSchema = z.object({
   userHint: z.string().optional(),
   mode: z.enum(["shortText", "longDoc"]),
   useGlobalContext: z.boolean().optional(),
-  globalContext: z.string().optional()
+  globalContext: z.string().optional(),
+  previewOnly: z.boolean().optional()
 })
 
-function buildUserPrompt(mode: "shortText" | "longDoc"): string {
+function buildUserPrompt(mode: "shortText" | "longDoc", previewOnly: boolean): string {
   if (mode === "longDoc") {
+    if (previewOnly) {
+      return "请仅输出文档大纲与要点，控制在 100 字以内。"
+    }
     return "请生成完整的文档正文，包含清晰的标题层级与专业结构。"
   }
   return "请生成简洁、专业、与问题匹配的回复。"
@@ -74,8 +78,9 @@ export async function generateHandler(c: Context): Promise<Response> {
   const userRecord = await getOrCreateUserRecord(authUser.id, authUser.email)
   const now = new Date()
   const upgradeUrl = `${env.appBaseUrl}/pricing`
+  const isPreview = payload.data.previewOnly === true
 
-  if (payload.data.mode === "longDoc" && userRecord.plan !== "pro") {
+  if (payload.data.mode === "longDoc" && userRecord.plan !== "pro" && !isPreview) {
     return jsonError(c, 403, {
       errorCode: "FORBIDDEN",
       message: "长文档生成仅对 Pro 开放",
@@ -127,7 +132,7 @@ export async function generateHandler(c: Context): Promise<Response> {
     globalContext: cleanedContext?.summary || globalContext
   })
 
-  const userPrompt = buildUserPrompt(payload.data.mode)
+  const userPrompt = buildUserPrompt(payload.data.mode, isPreview)
   const byokKey = c.req.header("x-byok-key") || ""
   const apiKeyOverride = userRecord.plan === "pro" && byokKey ? byokKey : undefined
   const modelOverride =

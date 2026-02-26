@@ -53,6 +53,8 @@ interface FormPilotPanelProps {
   usageLabel: string
   copied: boolean
   contextMeta?: { total: number; omitted: number } | null
+  isPreview?: boolean
+  previewLimit?: number
   iconPosition: { top: number; left: number }
   panelPosition: { top: number; left: number }
   isLoggedIn: boolean
@@ -84,10 +86,12 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
     mode,
     plan,
     usageLabel,
-    copied,
-    contextMeta,
-    iconPosition,
-    panelPosition,
+  copied,
+  contextMeta,
+  isPreview,
+  previewLimit,
+  iconPosition,
+  panelPosition,
     isLoggedIn,
     rootRef,
     onOpenPanel,
@@ -290,6 +294,11 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
                 <div className="rounded-lg border border-storm p-3 min-h-[120px] text-ink whitespace-pre-wrap">
                   {reply || (isGenerating ? "正在生成..." : "点击生成")}
                 </div>
+                {isPreview && reply && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-700">
+                    仅预览前 {previewLimit || 100} 字，升级解锁完整文档。
+                  </div>
+                )}
                 {reply && (
                   <div className="flex flex-wrap gap-2">
                     {QUICK_TWEAKS.map((tweak) => (
@@ -340,6 +349,7 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
                     type="button"
                     className="rounded-lg border border-storm px-3 py-2 text-xs"
                     onClick={onCopy}
+                    disabled={isPreview}
                   >
                     {copied ? "已复制" : "一键复制"}
                   </button>

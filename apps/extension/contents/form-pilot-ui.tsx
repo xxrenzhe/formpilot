@@ -17,6 +17,7 @@ export const config: PlasmoCSConfig = {
 }
 
 const PANEL_WIDTH = 380
+const PREVIEW_LIMIT = 100
 
 interface SlashContext {
   pageContext: PageContext
@@ -249,10 +250,9 @@ export default function FormPilotUi() {
         return
       }
 
-      if (plan === "free" && mode === "longDoc") {
-        setError("长文档仅 Pro 可用")
+      const previewOnly = plan === "free" && mode === "longDoc"
+      if (previewOnly) {
         void trackMetric("paywall_shown", { reason: "long_doc", mode })
-        return
       }
 
       setTranslation("")
@@ -265,7 +265,13 @@ export default function FormPilotUi() {
 
       const parser = createStreamParser({
         onTranslation: (text) => setTranslation((prev) => prev + text),
-        onReply: (text) => setReply((prev) => prev + text)
+        onReply: (text) =>
+          setReply((prev) => {
+            if (!previewOnly) return prev + text
+            if (prev.length >= PREVIEW_LIMIT) return prev
+            const remaining = PREVIEW_LIMIT - prev.length
+            return prev + text.slice(0, Math.max(0, remaining))
+          })
       })
 
       try {
@@ -294,10 +300,11 @@ export default function FormPilotUi() {
             userHint: resolvedHint,
             mode,
             useGlobalContext,
-            globalContext
+            globalContext,
+            previewOnly
           },
-        {
-          onToken: (token) => parser.push(token),
+          {
+            onToken: (token) => parser.push(token),
             onError: (message, url) => {
               hadError = true
               setError(message)
@@ -307,14 +314,14 @@ export default function FormPilotUi() {
               }
             },
             onMeta: (meta) => {
-            if (typeof meta.contextTotal === "number") {
-              setContextMeta({
-                total: meta.contextTotal,
-                omitted: meta.contextOmitted || 0
-              })
-            }
-          },
-          byokKey: plan === "pro" ? config.byokKey : undefined
+              if (typeof meta.contextTotal === "number") {
+                setContextMeta({
+                  total: meta.contextTotal,
+                  omitted: meta.contextOmitted || 0
+                })
+              }
+            },
+            byokKey: plan === "pro" ? config.byokKey : undefined
           }
         )
         const usageData = await fetchUsage()
@@ -335,6 +342,7 @@ export default function FormPilotUi() {
 
   const handleCopy = useCallback(async () => {
     if (!reply) return
+    if (plan === "free" && mode === "longDoc") return
     await navigator.clipboard.writeText(reply)
     setCopied(true)
     if (copyTimerRef.current) {
@@ -352,6 +360,7 @@ export default function FormPilotUi() {
   }, [usage])
 
   const isLoggedIn = Boolean(authState)
+  const isPreview = plan === "free" && mode === "longDoc"
 
   if (!activeField && !isManualMode) return null
 
@@ -396,6 +405,8 @@ export default function FormPilotUi() {
           chrome.runtime.openOptionsPage()
         }
       }}
+      isPreview={isPreview}
+      previewLimit={PREVIEW_LIMIT}
       onTrackMetric={(eventType, metadata) => {
         void trackMetric(eventType, metadata)
       }}
