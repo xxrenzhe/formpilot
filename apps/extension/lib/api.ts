@@ -126,6 +126,7 @@ export async function generateContent(
   options: {
     onToken: (token: string) => void
     onError: (message: string, upgradeUrl?: string) => void
+    onMeta?: (meta: { contextTotal?: number; contextOmitted?: number }) => void
     byokKey?: string
   }
 ): Promise<void> {
@@ -191,6 +192,17 @@ export async function generateContent(
         if (currentEvent === "error") {
           options.onError(data || "生成失败")
           return
+        }
+        if (currentEvent === "meta") {
+          try {
+            const parsed = JSON.parse(data) as { contextTotal?: number; contextOmitted?: number }
+            options.onMeta?.(parsed)
+          } catch {
+            // ignore
+          }
+          currentEvent = "message"
+          index = buffer.indexOf("\n")
+          continue
         }
         options.onToken(data)
       }

@@ -82,6 +82,7 @@ export default function FormPilotUi() {
   const [isManualMode, setIsManualMode] = useState(false)
   const [authState, setAuthState] = useState<AuthState | null>(null)
   const [copied, setCopied] = useState(false)
+  const [contextMeta, setContextMeta] = useState<{ total: number; omitted: number } | null>(null)
 
   const panelPosition = useMemo(() => calcPosition(anchorRect), [anchorRect])
   const activeElementRef = useRef<HTMLElement | null>(null)
@@ -235,11 +236,12 @@ export default function FormPilotUi() {
         return
       }
 
-      setTranslation("")
-      setReply("")
-      setIsGenerating(true)
-      setError("")
-      setUpgradeUrl("")
+    setTranslation("")
+    setReply("")
+    setIsGenerating(true)
+    setError("")
+    setUpgradeUrl("")
+    setContextMeta(null)
 
       const parser = createStreamParser({
         onTranslation: (text) => setTranslation((prev) => prev + text),
@@ -274,15 +276,23 @@ export default function FormPilotUi() {
             useGlobalContext,
             globalContext
           },
-          {
-            onToken: (token) => parser.push(token),
-            onError: (message, url) => {
-              setError(message)
-              if (url) setUpgradeUrl(url)
-            },
-            byokKey: plan === "pro" ? config.byokKey : undefined
-          }
-        )
+        {
+          onToken: (token) => parser.push(token),
+          onError: (message, url) => {
+            setError(message)
+            if (url) setUpgradeUrl(url)
+          },
+          onMeta: (meta) => {
+            if (typeof meta.contextTotal === "number") {
+              setContextMeta({
+                total: meta.contextTotal,
+                omitted: meta.contextOmitted || 0
+              })
+            }
+          },
+          byokKey: plan === "pro" ? config.byokKey : undefined
+        }
+      )
         const usageData = await fetchUsage()
         if (usageData) {
           setUsage(usageData)
@@ -335,6 +345,7 @@ export default function FormPilotUi() {
       plan={plan}
       usageLabel={usageLabel}
       copied={copied}
+      contextMeta={contextMeta}
       iconPosition={iconPosition}
       panelPosition={panelPosition}
       isLoggedIn={isLoggedIn}

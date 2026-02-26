@@ -10,6 +10,7 @@ import { streamGenerate } from "../ai"
 import { env } from "../config"
 import { streamSSE } from "hono/streaming"
 import type { UserPersona } from "@formpilot/shared"
+import { summarizeContext } from "../context"
 
 const pageContextSchema = z.object({
   title: z.string(),
@@ -116,12 +117,14 @@ export async function generateHandler(c: Context): Promise<Response> {
   }
 
   const globalContext = userRecord.plan === "pro" ? payload.data.globalContext : undefined
+  const contextLimit = Number(process.env.GLOBAL_CONTEXT_LIMIT || 6000)
+  const cleanedContext = globalContext ? summarizeContext(globalContext, contextLimit) : null
   const systemPrompt = buildSystemPrompt({
     pageContext: payload.data.pageContext,
     fieldContext: payload.data.fieldContext,
     persona,
     userHint: payload.data.userHint || "",
-    globalContext
+    globalContext: cleanedContext?.summary || globalContext
   })
 
   const userPrompt = buildUserPrompt(payload.data.mode)
@@ -134,6 +137,15 @@ export async function generateHandler(c: Context): Promise<Response> {
 
   return streamSSE(c, async (stream) => {
     try {
+      if (cleanedContext?.summary) {
+        await stream.writeSSE({
+          event: "meta",
+          data: JSON.stringify({
+            contextTotal: cleanedContext.total,
+            contextOmitted: cleanedContext.omitted
+          })
+        })
+      }
       await streamGenerate({
         systemPrompt,
         userPrompt,

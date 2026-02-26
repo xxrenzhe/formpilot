@@ -20,6 +20,9 @@ const SLASH_COMMANDS = [
   { key: "/my_company", label: "公司背景" },
   { key: "/my_role", label: "核心身份" }
 ]
+const SLASH_LABELS: Record<string, string> = Object.fromEntries(
+  SLASH_COMMANDS.map((command) => [command.key, command.label])
+)
 
 function findSlashToken(value: string, cursor: number): { token: string; start: number; end: number } | null {
   const prefix = value.slice(0, cursor)
@@ -48,6 +51,7 @@ interface FormPilotPanelProps {
   plan: UserPlan
   usageLabel: string
   copied: boolean
+  contextMeta?: { total: number; omitted: number } | null
   iconPosition: { top: number; left: number }
   panelPosition: { top: number; left: number }
   isLoggedIn: boolean
@@ -78,10 +82,11 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
     mode,
     plan,
     usageLabel,
-    copied,
-    iconPosition,
-    panelPosition,
-    isLoggedIn,
+  copied,
+  contextMeta,
+  iconPosition,
+  panelPosition,
+  isLoggedIn,
     rootRef,
     onOpenPanel,
     onClosePanel,
@@ -243,6 +248,11 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
                   <div className="flex items-center justify-between text-[11px] text-slate-500">
                     <span>{plan === "pro" ? "Pro" : "Free"}</span>
                     <span>{usageLabel}</span>
+                  </div>
+                )}
+                {contextMeta && (
+                  <div className="text-[11px] text-slate-400">
+                    已读取上下文 {contextMeta.total} 段，省略 {contextMeta.omitted} 段
                   </div>
                 )}
                 <div className="rounded-lg border border-storm p-3 min-h-[120px] text-ink whitespace-pre-wrap">
