@@ -41,6 +41,7 @@ export default function OptionsPage() {
   const [personaForm, setPersonaForm] = useState<PersonaFormState>(emptyPersona)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [status, setStatus] = useState("")
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [configApiBaseUrl, setConfigApiBaseUrl] = useState("")
   const [configByokKey, setConfigByokKey] = useState("")
 
@@ -180,7 +181,25 @@ export default function OptionsPage() {
     setStatus("配置已保存")
   }, [configApiBaseUrl, configByokKey])
 
+  const handleRefreshUsage = useCallback(async () => {
+    setIsRefreshing(true)
+    setStatus("")
+    try {
+      await refreshAccount()
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "刷新失败")
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [refreshAccount])
+
   const isLoggedIn = useMemo(() => Boolean(authEmail), [authEmail])
+  const usageHint = useMemo(() => {
+    if (!usage) return ""
+    if (usage.limit === -1) return `已使用 ${usage.used} 次`
+    const remaining = Math.max(usage.limit - usage.used, 0)
+    return `已用 ${usage.used} 次，剩余 ${remaining} 次`
+  }, [usage])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 text-ink">
@@ -263,12 +282,12 @@ export default function OptionsPage() {
               <h2 className="text-lg font-semibold">账号与套餐</h2>
               <p className="text-sm text-slate-600">当前账号：{authEmail}</p>
               <p className="text-sm text-slate-600">套餐：{plan === "pro" ? "Pro" : "Free"}</p>
-              {usage && (
-                <p className="text-xs text-slate-500">
-                  本月使用：{usage.used}/{usage.limit === -1 ? "不限" : usage.limit}
-                </p>
+              {usageHint ? (
+                <p className="text-xs text-slate-500">{usageHint}</p>
+              ) : (
+                <p className="text-xs text-slate-400">额度未获取，请检查 API 配置或登录状态。</p>
               )}
-              <div className="flex gap-2 pt-2">
+              <div className="flex flex-wrap gap-2 pt-2">
                 <button
                   type="button"
                   className="rounded-lg bg-ocean text-white px-3 py-2 text-xs"
@@ -282,6 +301,14 @@ export default function OptionsPage() {
                   onClick={() => handleCheckout("pro-year")}
                 >
                   升级 Pro 年付
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border border-storm px-3 py-2 text-xs"
+                  onClick={handleRefreshUsage}
+                  disabled={isRefreshing}
+                >
+                  {isRefreshing ? "刷新中" : "刷新额度"}
                 </button>
               </div>
             </div>
