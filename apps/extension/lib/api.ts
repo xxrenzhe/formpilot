@@ -1,4 +1,5 @@
 import type { GenerateRequest, UsageSummary, UserPersona } from "@formpilot/shared"
+import type { MetricEventPayload } from "@formpilot/shared"
 import { getAppConfig, getAuthState, setPlan } from "./storage"
 import { refreshSessionIfNeeded } from "./supabase"
 
@@ -209,4 +210,19 @@ export async function generateContent(
       index = buffer.indexOf("\n")
     }
   }
+}
+
+export async function sendMetric(payload: MetricEventPayload): Promise<void> {
+  const config = await getAppConfig()
+  const authHeader = await getAuthHeader()
+  if (!authHeader) return
+
+  await fetch(`${config.apiBaseUrl}/api/metrics`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: authHeader
+    },
+    body: JSON.stringify(payload)
+  })
 }

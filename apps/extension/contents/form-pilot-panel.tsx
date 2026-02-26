@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, RefObject } from "react"
-import type { GenerateMode, UserPersona, UserPlan } from "@formpilot/shared"
+import type { GenerateMode, MetricEventType, UserPersona, UserPlan } from "@formpilot/shared"
 
 const QUICK_TWEAKS = [
   { id: "shorter", label: "🤏 更简短", hint: "请更简短" },
@@ -66,6 +66,7 @@ interface FormPilotPanelProps {
   onModeChange: (mode: GenerateMode) => void
   onOpenOptions: () => void
   onOpenUpgrade: (upgradeUrl?: string) => void
+  onTrackMetric?: (eventType: MetricEventType, metadata?: Record<string, string | number | boolean>) => void
 }
 
 export default function FormPilotPanel(props: FormPilotPanelProps) {
@@ -97,7 +98,8 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
     onUserHintChange,
     onModeChange,
     onOpenOptions,
-    onOpenUpgrade
+    onOpenUpgrade,
+    onTrackMetric
   } = props
 
   const [slashQuery, setSlashQuery] = useState("")
@@ -209,8 +211,9 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
       const combined = userHint ? `${userHint}\n${hint}` : hint
       onUserHintChange(combined)
       onStartGeneration(combined)
+      onTrackMetric?.("rewrite_click", { label: hint })
     },
-    [userHint, onUserHintChange, onStartGeneration]
+    [userHint, onUserHintChange, onStartGeneration, onTrackMetric]
   )
 
   return (

@@ -49,3 +49,15 @@ export interface UsageSummary {
   limit: number
   plan: UserPlan
 }
+
+export type MetricEventType =
+  | "panel_open"
+  | "generate_success"
+  | "copy_success"
+  | "paywall_shown"
+  | "rewrite_click"
+
+export interface MetricEventPayload {
+  eventType: MetricEventType
+  metadata?: Record<string, string | number | boolean>
+}

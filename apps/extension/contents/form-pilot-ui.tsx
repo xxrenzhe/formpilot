@@ -2,13 +2,13 @@ import "../style.css"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { PlasmoCSConfig } from "plasmo"
-import type { FieldContext, GenerateMode, PageContext, UserPersona, UserPlan, UsageSummary } from "@formpilot/shared"
+import type { FieldContext, GenerateMode, MetricEventType, PageContext, UserPersona, UserPlan, UsageSummary } from "@formpilot/shared"
 import { isPiiField } from "@formpilot/shared"
 import { extractFieldContext, extractPageContext, detectLongDoc } from "./extractor"
 import { extractGlobalContext } from "./globalContext"
 import FormPilotPanel from "./form-pilot-panel"
 import { createStreamParser } from "../lib/streamParser"
-import { fetchPersonas, fetchUsage, generateContent } from "../lib/api"
+import { fetchPersonas, fetchUsage, generateContent, sendMetric } from "../lib/api"
 import { cachePersonas, getAppConfig, getAuthState, getCachedPersonas, setPlan } from "../lib/storage"
 import type { AuthState } from "../lib/storage"
 
@@ -113,6 +113,17 @@ export default function FormPilotUi() {
     }
   }, [])
 
+  const trackMetric = useCallback(
+    async (eventType: MetricEventType, metadata?: Record<string, string | number | boolean>) => {
+      try {
+        await sendMetric({ eventType, metadata })
+      } catch {
+        // ignore metrics errors
+      }
+    },
+    []
+  )
+
   const activateField = useCallback((target: HTMLElement, openPanel: boolean) => {
     activeElementRef.current = target
     const field = extractFieldContext(target)
@@ -162,6 +173,7 @@ export default function FormPilotUi() {
     setReply("")
     setError("")
     setUpgradeUrl("")
+    void trackMetric("panel_open", { source: "manual" })
   }, [])
 
   useEffect(() => {
@@ -186,11 +198,12 @@ export default function FormPilotUi() {
       if (!isSupportedInput(target)) return
       event.preventDefault()
       activateField(target, true)
+      void trackMetric("panel_open", { source: "shortcut" })
     }
 
     document.addEventListener("keydown", handleShortcut, true)
     return () => document.removeEventListener("keydown", handleShortcut, true)
-  }, [activateField])
+  }, [activateField, trackMetric])
 
   useEffect(() => {
     const storageListener = (
@@ -238,10 +251,11 @@ export default function FormPilotUi() {
 
     setTranslation("")
     setReply("")
-    setIsGenerating(true)
-    setError("")
-    setUpgradeUrl("")
-    setContextMeta(null)
+      setIsGenerating(true)
+      setError("")
+      setUpgradeUrl("")
+      setContextMeta(null)
+      let hadError = false
 
       const parser = createStreamParser({
         onTranslation: (text) => setTranslation((prev) => prev + text),
@@ -278,11 +292,15 @@ export default function FormPilotUi() {
           },
         {
           onToken: (token) => parser.push(token),
-          onError: (message, url) => {
-            setError(message)
-            if (url) setUpgradeUrl(url)
-          },
-          onMeta: (meta) => {
+            onError: (message, url) => {
+              hadError = true
+              setError(message)
+              if (url) setUpgradeUrl(url)
+              if (url) {
+                void trackMetric("paywall_shown", { reason: message, mode })
+              }
+            },
+            onMeta: (meta) => {
             if (typeof meta.contextTotal === "number") {
               setContextMeta({
                 total: meta.contextTotal,
@@ -291,12 +309,15 @@ export default function FormPilotUi() {
             }
           },
           byokKey: plan === "pro" ? config.byokKey : undefined
-        }
-      )
+          }
+        )
         const usageData = await fetchUsage()
         if (usageData) {
           setUsage(usageData)
           setPlanState(usageData.plan)
+        }
+        if (!hadError) {
+          void trackMetric("generate_success", { mode, plan })
         }
       } finally {
         parser.flush()
@@ -314,7 +335,8 @@ export default function FormPilotUi() {
       window.clearTimeout(copyTimerRef.current)
     }
     copyTimerRef.current = window.setTimeout(() => setCopied(false), 2000)
-  }, [reply])
+    void trackMetric("copy_success", { mode, plan })
+  }, [reply, mode, plan, trackMetric])
 
   const usageLabel = useMemo(() => {
     if (!usage) return ""
@@ -350,7 +372,10 @@ export default function FormPilotUi() {
       panelPosition={panelPosition}
       isLoggedIn={isLoggedIn}
       rootRef={panelRootRef}
-      onOpenPanel={() => setPanelOpen(true)}
+      onOpenPanel={() => {
+        setPanelOpen(true)
+        void trackMetric("panel_open", { source: "icon" })
+      }}
       onClosePanel={() => setPanelOpen(false)}
       onStartGeneration={startGeneration}
       onCopy={handleCopy}
@@ -364,6 +389,9 @@ export default function FormPilotUi() {
         } else {
           chrome.runtime.openOptionsPage()
         }
+      }}
+      onTrackMetric={(eventType, metadata) => {
+        void trackMetric(eventType, metadata)
       }}
     />
   )

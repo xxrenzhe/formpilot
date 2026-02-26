@@ -6,6 +6,7 @@ import { generateHandler } from "./routes/generate"
 import { listPersonasHandler, createPersonaHandler, updatePersonaHandler, deletePersonaHandler } from "./routes/personas"
 import { usageHandler } from "./routes/usage"
 import { createCheckoutHandler, stripeWebhookHandler } from "./routes/stripe"
+import { metricsHandler } from "./routes/metrics"
 
 const app = new Hono()
 
@@ -28,6 +29,7 @@ app.post("/api/personas", createPersonaHandler)
 app.put("/api/personas/:id", updatePersonaHandler)
 app.delete("/api/personas/:id", deletePersonaHandler)
 app.post("/api/checkout", createCheckoutHandler)
+app.post("/api/metrics", metricsHandler)
 app.post("/api/stripe/webhook", stripeWebhookHandler)
 
 serve({

@@ -33,12 +33,22 @@ create table if not exists usage_logs (
   success boolean default true
 );
 
+create table if not exists metrics_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references users (id) on delete cascade,
+  event_type text not null,
+  metadata jsonb,
+  timestamp timestamptz default now()
+);
+
 create index if not exists personas_user_id_idx on personas (user_id);
 create index if not exists usage_logs_user_id_idx on usage_logs (user_id, timestamp);
+create index if not exists metrics_events_user_id_idx on metrics_events (user_id, timestamp);
 
 alter table users enable row level security;
 alter table personas enable row level security;
 alter table usage_logs enable row level security;
+alter table metrics_events enable row level security;
 
 create policy "Users can view self" on users
   for select using (auth.uid() = id);
@@ -47,6 +57,9 @@ create policy "Users can manage personas" on personas
   for all using (auth.uid() = user_id);
 
 create policy "Users can view usage logs" on usage_logs
+  for select using (auth.uid() = user_id);
+
+create policy "Users can view metrics" on metrics_events
   for select using (auth.uid() = user_id);
 
 create or replace function enforce_single_default_persona()
