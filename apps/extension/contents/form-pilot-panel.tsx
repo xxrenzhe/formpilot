@@ -416,6 +416,25 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
                     </button>
                   </div>
                 )}
+
+                <details className="rounded-xl border border-storm bg-slate-50 p-3 text-xs text-slate-600">
+                  <summary className="cursor-pointer text-slate-600">快捷键与变量</summary>
+                  <div className="mt-2 space-y-1">
+                    <div>Cmd/Ctrl + M：唤起面板</div>
+                    <div>Enter：生成后快速复制（输入框中）</div>
+                    <div>输入 / 调出变量：</div>
+                    <div className="flex flex-wrap gap-2">
+                      {SLASH_COMMANDS.map((command) => (
+                        <span
+                          key={command.key}
+                          className="rounded-full border border-storm bg-white px-2 py-0.5 text-[11px]"
+                        >
+                          {command.key}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </details>
               </>
             )}
           </div>
