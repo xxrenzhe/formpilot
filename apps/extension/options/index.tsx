@@ -2,15 +2,7 @@ import "../style.css"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { UserPersona, UsageSummary, UserPlan } from "@formpilot/shared"
-import {
-  createPersona,
-  deletePersona,
-  fetchMetricsDaily,
-  fetchPersonas,
-  fetchUsage,
-  openCheckout,
-  updatePersona
-} from "../lib/api"
+import { createPersona, deletePersona, fetchMetricsDaily, fetchPersonas, fetchUsage, openCheckout, sendMetric, updatePersona } from "../lib/api"
 import { consumeOAuthRedirect, signInWithEmail, signInWithGoogle, signOut, signUpWithEmail } from "../lib/supabase"
 import { getAppConfig, getAuthState, setAppConfig, setAuthState } from "../lib/storage"
 
@@ -45,9 +37,7 @@ export default function OptionsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [configApiBaseUrl, setConfigApiBaseUrl] = useState("")
   const [configByokKey, setConfigByokKey] = useState("")
-  const [metricsRows, setMetricsRows] = useState<
-    { day: string; panel_users: number; generate_users: number; copy_users: number; paywall_users: number }[]
-  >([])
+  const [metricsRows, setMetricsRows] = useState<{ day: string; panel_users: number; generate_users: number; copy_users: number; paywall_users: number }[]>([])
 
   const refreshAccount = useCallback(async () => {
     const auth = await getAuthState()
@@ -62,6 +52,14 @@ export default function OptionsPage() {
     setPersonas(personaList)
     const metrics = await fetchMetricsDaily()
     setMetricsRows(metrics)
+  }, [])
+
+  const trackPaywall = useCallback(async (reason: string) => {
+    try {
+      await sendMetric({ eventType: "paywall_shown", metadata: { reason, source: "persona" } })
+    } catch {
+      // ignore metrics errors
+    }
   }, [])
 
   useEffect(() => {
@@ -149,9 +147,13 @@ export default function OptionsPage() {
         setStatus("已保存人设")
       }
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "保存失败")
+      const message = error instanceof Error ? error.message : "保存失败"
+      setStatus(message)
+      if (message.includes("人设数量已达上限")) {
+        void trackPaywall("persona_limit")
+      }
     }
-  }, [personaForm, editingId, refreshAccount])
+  }, [personaForm, editingId, refreshAccount, trackPaywall])
 
   const handlePersonaEdit = useCallback((persona: UserPersona) => {
     setEditingId(persona.id)
