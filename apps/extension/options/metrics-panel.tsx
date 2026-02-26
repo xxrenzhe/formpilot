@@ -14,6 +14,7 @@ export function MetricsPanel(props: MetricsPanelProps) {
   const ahaHint = metricsSummary
     ? `Aha 转化率 ${ahaRate}%（复制 ${metricsSummary.copyUsers} / 生成 ${metricsSummary.generateUsers}）`
     : "暂无 Aha 数据"
+  const activeHint = metricsSummary ? `DAU ${metricsSummary.dau} / MAU ${metricsSummary.mau}` : "暂无活跃数据"
 
   return (
     <section className="rounded-2xl border border-storm bg-white p-6 shadow-sm space-y-3">
@@ -30,6 +31,7 @@ export function MetricsPanel(props: MetricsPanelProps) {
       </div>
       <p className="text-xs text-slate-500">{metricsHint}</p>
       <p className="text-xs text-slate-500">{ahaHint}</p>
+      <p className="text-xs text-slate-500">{activeHint}</p>
       <div className="grid md:grid-cols-2 gap-3 text-xs text-slate-600">
         {metricsRows.map((row) => (
           <div key={row.day} className="rounded-xl border border-storm p-3">

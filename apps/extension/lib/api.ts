@@ -15,6 +15,8 @@ export interface MetricsFunnelSummary {
   generateUsers: number
   copyUsers: number
   ahaRate: number
+  dau: number
+  mau: number
 }
 
 async function getAuthHeader(): Promise<string | null> {
