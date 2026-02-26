@@ -8,6 +8,7 @@ import { usageHandler } from "./routes/usage"
 import { createCheckoutHandler, stripeWebhookHandler } from "./routes/stripe"
 import { metricsHandler } from "./routes/metrics"
 import { metricsDailyHandler } from "./routes/metricsDaily"
+import { metricsFunnelHandler } from "./routes/metricsFunnel"
 
 const app = new Hono()
 
@@ -32,6 +33,7 @@ app.delete("/api/personas/:id", deletePersonaHandler)
 app.post("/api/checkout", createCheckoutHandler)
 app.post("/api/metrics", metricsHandler)
 app.get("/api/metrics/daily", metricsDailyHandler)
+app.get("/api/metrics/funnel", metricsFunnelHandler)
 app.post("/api/stripe/webhook", stripeWebhookHandler)
 
 serve({

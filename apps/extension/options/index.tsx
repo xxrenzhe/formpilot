@@ -2,9 +2,21 @@ import "../style.css"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { UserPersona, UsageSummary, UserPlan } from "@formpilot/shared"
-import { createPersona, deletePersona, fetchMetricsDaily, fetchPersonas, fetchUsage, openCheckout, sendMetric, updatePersona } from "../lib/api"
+import type { MetricsDailyRow, MetricsFunnelSummary } from "../lib/api"
+import {
+  createPersona,
+  deletePersona,
+  fetchMetricsDaily,
+  fetchMetricsFunnel,
+  fetchPersonas,
+  fetchUsage,
+  openCheckout,
+  sendMetric,
+  updatePersona
+} from "../lib/api"
 import { consumeOAuthRedirect, signInWithEmail, signInWithGoogle, signOut, signUpWithEmail } from "../lib/supabase"
 import { getAppConfig, getAuthState, setAppConfig, setAuthState } from "../lib/storage"
+import { MetricsPanel } from "./metrics-panel"
 
 interface PersonaFormState {
   name: string
@@ -37,21 +49,27 @@ export default function OptionsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [configApiBaseUrl, setConfigApiBaseUrl] = useState("")
   const [configByokKey, setConfigByokKey] = useState("")
-  const [metricsRows, setMetricsRows] = useState<{ day: string; panel_users: number; generate_users: number; copy_users: number; paywall_users: number }[]>([])
+  const [metricsRows, setMetricsRows] = useState<MetricsDailyRow[]>([])
+  const [metricsSummary, setMetricsSummary] = useState<MetricsFunnelSummary | null>(null)
 
   const refreshAccount = useCallback(async () => {
     const auth = await getAuthState()
     if (!auth) return
     setAuthEmail(auth.email)
 
-    const [usageData, personaList] = await Promise.all([fetchUsage(), fetchPersonas()])
+    const [usageData, personaList, metrics, summary] = await Promise.all([
+      fetchUsage(),
+      fetchPersonas(),
+      fetchMetricsDaily(),
+      fetchMetricsFunnel()
+    ])
     if (usageData) {
       setUsage(usageData)
       setPlan(usageData.plan)
     }
     setPersonas(personaList)
-    const metrics = await fetchMetricsDaily()
     setMetricsRows(metrics)
+    setMetricsSummary(summary)
   }, [])
 
   const trackPaywall = useCallback(async (reason: string) => {
@@ -454,33 +472,13 @@ export default function OptionsPage() {
         )}
 
         {isLoggedIn && (
-          <section className="rounded-2xl border border-storm bg-white p-6 shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">指标概览</h2>
-              <button
-                type="button"
-                className="text-xs text-slate-500"
-                onClick={handleRefreshUsage}
-                disabled={isRefreshing}
-              >
-                {isRefreshing ? "刷新中" : "刷新"}
-              </button>
-            </div>
-            <p className="text-xs text-slate-500">{metricsHint}</p>
-            <div className="grid md:grid-cols-2 gap-3 text-xs text-slate-600">
-              {metricsRows.map((row) => (
-                <div key={row.day} className="rounded-xl border border-storm p-3">
-                <div className="font-semibold text-slate-700">
-                  {new Date(row.day).toLocaleDateString("zh-CN")}
-                </div>
-                  <div className="mt-1">打开: {row.panel_users}</div>
-                  <div>生成: {row.generate_users}</div>
-                  <div>复制: {row.copy_users}</div>
-                  <div>Paywall: {row.paywall_users}</div>
-                </div>
-              ))}
-            </div>
-          </section>
+          <MetricsPanel
+            metricsRows={metricsRows}
+            metricsSummary={metricsSummary}
+            metricsHint={metricsHint}
+            isRefreshing={isRefreshing}
+            onRefresh={handleRefreshUsage}
+          />
         )}
 
         {status && (

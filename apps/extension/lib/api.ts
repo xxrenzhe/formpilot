@@ -3,6 +3,20 @@ import type { MetricEventPayload } from "@formpilot/shared"
 import { getAppConfig, getAuthState, setPlan } from "./storage"
 import { refreshSessionIfNeeded } from "./supabase"
 
+export interface MetricsDailyRow {
+  day: string
+  panel_users: number
+  generate_users: number
+  copy_users: number
+  paywall_users: number
+}
+
+export interface MetricsFunnelSummary {
+  generateUsers: number
+  copyUsers: number
+  ahaRate: number
+}
+
 async function getAuthHeader(): Promise<string | null> {
   const token = await refreshSessionIfNeeded()
   if (!token) return null
@@ -239,9 +253,7 @@ export async function sendMetric(payload: MetricEventPayload): Promise<void> {
   })
 }
 
-export async function fetchMetricsDaily(): Promise<
-  { day: string; panel_users: number; generate_users: number; copy_users: number; paywall_users: number }[]
-> {
+export async function fetchMetricsDaily(): Promise<MetricsDailyRow[]> {
   const config = await getAppConfig()
   const authHeader = await getAuthHeader()
   if (!authHeader) return []
@@ -252,6 +264,20 @@ export async function fetchMetricsDaily(): Promise<
     }
   })
   if (!response.ok) return []
-  const data = (await response.json()) as { rows: any[] }
+  const data = (await response.json()) as { rows: MetricsDailyRow[] }
   return data.rows || []
+}
+
+export async function fetchMetricsFunnel(): Promise<MetricsFunnelSummary | null> {
+  const config = await getAppConfig()
+  const authHeader = await getAuthHeader()
+  if (!authHeader) return null
+
+  const response = await fetch(`${config.apiBaseUrl}/api/metrics/funnel`, {
+    headers: {
+      Authorization: authHeader
+    }
+  })
+  if (!response.ok) return null
+  return (await response.json()) as MetricsFunnelSummary
 }
