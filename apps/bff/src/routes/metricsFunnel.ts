@@ -38,7 +38,7 @@ export async function metricsFunnelHandler(c: Context): Promise<Response> {
 
   const { data, error } = await supabase
     .from("metrics_user_funnel")
-    .select("first_generate_at, first_copy_at")
+    .select("first_generate_at, first_copy_at, first_paywall_at")
 
   if (error) {
     return jsonError(c, 500, { errorCode: "FORBIDDEN", message: "查询失败" })
@@ -47,12 +47,16 @@ export async function metricsFunnelHandler(c: Context): Promise<Response> {
   const rows = data || []
   const generateUsers = rows.filter((row) => row.first_generate_at).length
   const copyUsers = rows.filter((row) => row.first_copy_at).length
+  const paywallUsers = rows.filter((row) => row.first_paywall_at).length
   const ahaRate = generateUsers > 0 ? copyUsers / generateUsers : 0
+  const paywallRate = generateUsers > 0 ? paywallUsers / generateUsers : 0
 
   return c.json({
     generateUsers,
     copyUsers,
+    paywallUsers,
     ahaRate,
+    paywallRate,
     dau: dauSet.size,
     mau: mauSet.size
   })

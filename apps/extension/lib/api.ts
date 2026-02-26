@@ -14,7 +14,9 @@ export interface MetricsDailyRow {
 export interface MetricsFunnelSummary {
   generateUsers: number
   copyUsers: number
+  paywallUsers: number
   ahaRate: number
+  paywallRate: number
   dau: number
   mau: number
 }

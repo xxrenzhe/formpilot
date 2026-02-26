@@ -14,6 +14,10 @@ export function MetricsPanel(props: MetricsPanelProps) {
   const ahaHint = metricsSummary
     ? `Aha 转化率 ${ahaRate}%（复制 ${metricsSummary.copyUsers} / 生成 ${metricsSummary.generateUsers}）`
     : "暂无 Aha 数据"
+  const paywallRate = metricsSummary ? Math.round(metricsSummary.paywallRate * 100) : 0
+  const paywallHint = metricsSummary
+    ? `Paywall 触达率 ${paywallRate}%（触达 ${metricsSummary.paywallUsers} / 生成 ${metricsSummary.generateUsers}）`
+    : "暂无 Paywall 数据"
   const activeHint = metricsSummary ? `DAU ${metricsSummary.dau} / MAU ${metricsSummary.mau}` : "暂无活跃数据"
 
   return (
@@ -31,6 +35,7 @@ export function MetricsPanel(props: MetricsPanelProps) {
       </div>
       <p className="text-xs text-slate-500">{metricsHint}</p>
       <p className="text-xs text-slate-500">{ahaHint}</p>
+      <p className="text-xs text-slate-500">{paywallHint}</p>
       <p className="text-xs text-slate-500">{activeHint}</p>
       <div className="grid md:grid-cols-2 gap-3 text-xs text-slate-600">
         {metricsRows.map((row) => (
