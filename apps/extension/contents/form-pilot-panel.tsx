@@ -20,6 +20,7 @@ const SLASH_COMMANDS = [
   { key: "/my_company", label: "公司背景" },
   { key: "/my_role", label: "核心身份" }
 ]
+
 const SLASH_LABELS: Record<string, string> = Object.fromEntries(
   SLASH_COMMANDS.map((command) => [command.key, command.label])
 )
@@ -82,11 +83,11 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
     mode,
     plan,
     usageLabel,
-  copied,
-  contextMeta,
-  iconPosition,
-  panelPosition,
-  isLoggedIn,
+    copied,
+    contextMeta,
+    iconPosition,
+    panelPosition,
+    isLoggedIn,
     rootRef,
     onOpenPanel,
     onClosePanel,
@@ -102,6 +103,7 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
   const [slashQuery, setSlashQuery] = useState("")
   const [slashRange, setSlashRange] = useState<{ start: number; end: number } | null>(null)
   const [pendingCursor, setPendingCursor] = useState<number | null>(null)
+  const [activeSlashIndex, setActiveSlashIndex] = useState(0)
   const promptInputRef = useRef<HTMLTextAreaElement | null>(null)
 
   useEffect(() => {
@@ -124,6 +126,14 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
     if (!slashQuery) return []
     return SLASH_COMMANDS.filter((command) => command.key.startsWith(slashQuery))
   }, [slashQuery, slashRange])
+
+  useEffect(() => {
+    if (slashSuggestions.length === 0) {
+      setActiveSlashIndex(0)
+      return
+    }
+    setActiveSlashIndex((prev) => Math.min(prev, slashSuggestions.length - 1))
+  }, [slashSuggestions.length])
 
   const updateSlashState = useCallback((value: string, cursor: number) => {
     const match = findSlashToken(value, cursor)
@@ -163,10 +173,27 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
 
   const handlePromptKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-      if (slashSuggestions.length > 0 && (event.key === "Enter" || event.key === "Tab")) {
-        event.preventDefault()
-        insertSlashCommand(slashSuggestions[0])
-        return
+      if (slashSuggestions.length > 0) {
+        if (event.key === "ArrowDown") {
+          event.preventDefault()
+          setActiveSlashIndex((prev) => (prev + 1) % slashSuggestions.length)
+          return
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault()
+          setActiveSlashIndex((prev) => (prev - 1 + slashSuggestions.length) % slashSuggestions.length)
+          return
+        }
+        if (event.key === "Enter" || event.key === "Tab") {
+          event.preventDefault()
+          insertSlashCommand(slashSuggestions[activeSlashIndex])
+          return
+        }
+        if (event.key === "Escape") {
+          setSlashQuery("")
+          setSlashRange(null)
+          return
+        }
       }
 
       if (event.key === "Enter" && !event.shiftKey && reply && !isGenerating) {
@@ -174,7 +201,7 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
         onCopy()
       }
     },
-    [slashSuggestions, insertSlashCommand, reply, isGenerating, onCopy]
+    [slashSuggestions, activeSlashIndex, insertSlashCommand, reply, isGenerating, onCopy]
   )
 
   const handleQuickRewrite = useCallback(
@@ -350,17 +377,22 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
                   />
                   {slashSuggestions.length > 0 && (
                     <div className="rounded-md border border-storm bg-white text-xs shadow-sm">
-                      {slashSuggestions.map((command) => (
-                        <button
-                          key={command.key}
-                          type="button"
-                          className="flex w-full items-center justify-between px-2 py-1 text-left hover:bg-mist"
-                          onClick={() => insertSlashCommand(command)}
-                        >
-                          <span className="text-ink">{command.key}</span>
-                          <span className="text-slate-400">{command.label}</span>
-                        </button>
-                      ))}
+                      {slashSuggestions.map((command, index) => {
+                        const isActive = index === activeSlashIndex
+                        return (
+                          <button
+                            key={command.key}
+                            type="button"
+                            className={`flex w-full items-center justify-between px-2 py-1 text-left hover:bg-mist ${
+                              isActive ? "bg-mist" : ""
+                            }`}
+                            onClick={() => insertSlashCommand(command)}
+                          >
+                            <span className="text-ink">{command.key}</span>
+                            <span className="text-slate-400">{SLASH_LABELS[command.key] || command.label}</span>
+                          </button>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
