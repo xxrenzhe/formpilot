@@ -2,7 +2,7 @@ import type { Context } from "hono"
 import { z } from "zod"
 import { getAuthUser } from "../auth"
 import { jsonError } from "../response"
-import { getOrCreateUserRecord } from "../user"
+import { ensureActivePlan, getOrCreateUserRecord } from "../user"
 import { countPersonas, createPersona, deletePersona, listPersonas, updatePersona } from "../personas"
 import { supabase } from "../db"
 
@@ -37,7 +37,7 @@ export async function createPersonaHandler(c: Context): Promise<Response> {
     return jsonError(c, 401, { errorCode: "UNAUTHORIZED", message: "未登录" })
   }
 
-  const userRecord = await getOrCreateUserRecord(authUser.id, authUser.email)
+  const userRecord = await ensureActivePlan(await getOrCreateUserRecord(authUser.id, authUser.email))
   const payload = personaSchema.safeParse(await c.req.json())
   if (!payload.success) {
     return jsonError(c, 400, { errorCode: "FORBIDDEN", message: "参数错误" })

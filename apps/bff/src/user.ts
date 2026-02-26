@@ -88,3 +88,22 @@ export async function findUserByStripeCustomerId(stripeCustomerId: string): Prom
     currentPeriodEnd: data.current_period_end
   }
 }
+
+function isInviteTrialExpired(user: UserRecord, now: Date): boolean {
+  if (user.plan !== "pro") return false
+  if (user.stripeSubscriptionId) return false
+  if (!user.currentPeriodEnd) return false
+  const end = new Date(user.currentPeriodEnd)
+  if (Number.isNaN(end.getTime())) return false
+  return end.getTime() <= now.getTime()
+}
+
+export async function ensureActivePlan(user: UserRecord, now: Date = new Date()): Promise<UserRecord> {
+  if (!isInviteTrialExpired(user, now)) return user
+  const { error } = await supabase
+    .from("users")
+    .update({ plan: "free", current_period_end: null })
+    .eq("id", user.id)
+  if (error) throw error
+  return { ...user, plan: "free", currentPeriodEnd: null }
+}

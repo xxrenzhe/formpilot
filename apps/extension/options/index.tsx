@@ -11,6 +11,7 @@ import {
   fetchPersonas,
   fetchUsage,
   openCheckout,
+  redeemInvite,
   sendMetric,
   updatePersona
 } from "../lib/api"
@@ -51,6 +52,9 @@ export default function OptionsPage() {
   const [configByokKey, setConfigByokKey] = useState("")
   const [metricsRows, setMetricsRows] = useState<MetricsDailyRow[]>([])
   const [metricsSummary, setMetricsSummary] = useState<MetricsFunnelSummary | null>(null)
+  const [inviteCode, setInviteCode] = useState("")
+  const [inviteStatus, setInviteStatus] = useState("")
+  const [isRedeeming, setIsRedeeming] = useState(false)
 
   const refreshAccount = useCallback(async () => {
     const auth = await getAuthState()
@@ -219,6 +223,33 @@ export default function OptionsPage() {
     }
   }, [refreshAccount])
 
+  const handleRedeemInvite = useCallback(async () => {
+    setInviteStatus("")
+    const trimmed = inviteCode.trim()
+    if (!trimmed) {
+      setInviteStatus("请输入邀请码")
+      return
+    }
+    if (plan === "pro") {
+      setInviteStatus("当前已是 Pro，无需兑换")
+      return
+    }
+
+    setIsRedeeming(true)
+    try {
+      const result = await redeemInvite(trimmed)
+      const endDate = new Date(result.trialEndsAt)
+      const readable = Number.isNaN(endDate.getTime()) ? result.trialEndsAt : endDate.toLocaleString()
+      setInviteStatus(`兑换成功，已解锁 7 天 Pro，有效期至 ${readable}`)
+      setInviteCode("")
+      await refreshAccount()
+    } catch (error) {
+      setInviteStatus(error instanceof Error ? error.message : "兑换失败")
+    } finally {
+      setIsRedeeming(false)
+    }
+  }, [inviteCode, plan, refreshAccount])
+
   const metricsHint = useMemo(() => {
     if (!metricsRows.length) return "暂无指标数据"
     const latest = metricsRows[0]
@@ -368,6 +399,26 @@ export default function OptionsPage() {
               >
                 保存配置
               </button>
+            </div>
+
+            <div className="rounded-2xl border border-storm bg-white p-6 shadow-sm space-y-3">
+              <h2 className="text-lg font-semibold">邀请码兑换</h2>
+              <p className="text-xs text-slate-500">仅 Free 用户可兑换，成功后获得 7 天 Pro。</p>
+              <input
+                className="w-full rounded-lg border border-storm px-3 py-2 text-sm uppercase tracking-widest"
+                placeholder="输入邀请码"
+                value={inviteCode}
+                onChange={(event) => setInviteCode(event.target.value)}
+              />
+              <button
+                type="button"
+                className="rounded-lg bg-slate-900 text-white px-4 py-2 text-xs"
+                onClick={handleRedeemInvite}
+                disabled={isRedeeming}
+              >
+                {isRedeeming ? "兑换中" : "兑换邀请码"}
+              </button>
+              {inviteStatus && <p className="text-xs text-slate-600">{inviteStatus}</p>}
             </div>
           </section>
         )}

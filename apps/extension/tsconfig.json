@@ -4,11 +4,20 @@
     "module": "ES2022",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
-    "lib": ["DOM", "ES2022"],
+    "lib": [
+      "DOM",
+      "ES2022"
+    ],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["chrome"]
+    "types": [
+      "chrome"
+    ]
   },
-  "include": ["**/*.ts", "**/*.tsx"]
+  "include": [
+    ".plasmo/index.d.ts",
+    "**/*.ts",
+    "**/*.tsx"
+  ]
 }

@@ -10,6 +10,8 @@ export const env = {
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || "",
   stripePriceProMonth: process.env.STRIPE_PRICE_PRO_MONTH || "",
   stripePriceProYear: process.env.STRIPE_PRICE_PRO_YEAR || "",
+  adminToken: process.env.ADMIN_TOKEN || "",
+  inviteTrialDays: Number(process.env.INVITE_TRIAL_DAYS || 7),
   aiProvider: process.env.AI_PROVIDER || "openai",
   aiBaseUrl: process.env.AI_BASE_URL || "https://api.openai.com/v1",
   aiApiKey: process.env.AI_API_KEY || "",

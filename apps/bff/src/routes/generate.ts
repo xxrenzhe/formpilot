@@ -3,7 +3,7 @@ import { z } from "zod"
 import { buildSystemPrompt } from "@formpilot/shared"
 import { getAuthUser } from "../auth"
 import { jsonError } from "../response"
-import { getOrCreateUserRecord } from "../user"
+import { ensureActivePlan, getOrCreateUserRecord } from "../user"
 import { FREE_MONTHLY_LIMIT, PRO_DAILY_LIMIT, getDailyUsageCount, getMonthlyUsageCount, recordUsage } from "../usage"
 import { getPersona } from "../personas"
 import { streamGenerate } from "../ai"
@@ -75,8 +75,8 @@ export async function generateHandler(c: Context): Promise<Response> {
     })
   }
 
-  const userRecord = await getOrCreateUserRecord(authUser.id, authUser.email)
   const now = new Date()
+  const userRecord = await ensureActivePlan(await getOrCreateUserRecord(authUser.id, authUser.email), now)
   const upgradeUrl = `${env.appBaseUrl}/pricing`
   const isPreview = payload.data.previewOnly === true
 

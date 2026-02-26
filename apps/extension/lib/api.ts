@@ -1,4 +1,4 @@
-import type { GenerateRequest, UsageSummary, UserPersona } from "@formpilot/shared"
+import type { GenerateRequest, UsageSummary, UserPersona, UserPlan } from "@formpilot/shared"
 import type { MetricEventPayload } from "@formpilot/shared"
 import { getAppConfig, getAuthState, setPlan } from "./storage"
 import { refreshSessionIfNeeded } from "./supabase"
@@ -150,6 +150,35 @@ export async function openCheckout(price: "pro-month" | "pro-year"): Promise<str
   if (!response.ok) return null
   const data = (await response.json()) as { url: string }
   return data.url
+}
+
+export async function redeemInvite(code: string): Promise<{ plan: UserPlan; trialEndsAt: string }> {
+  const config = await getAppConfig()
+  const authHeader = await getAuthHeader()
+  if (!authHeader) {
+    throw new Error("未登录")
+  }
+
+  const response = await fetch(`${config.apiBaseUrl}/api/invites/redeem`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: authHeader
+    },
+    body: JSON.stringify({ code })
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    try {
+      const data = JSON.parse(text) as { message?: string }
+      throw new Error(data.message || "兑换失败")
+    } catch {
+      throw new Error(text || "兑换失败")
+    }
+  }
+
+  return (await response.json()) as { plan: UserPlan; trialEndsAt: string }
 }
 
 export async function generateContent(

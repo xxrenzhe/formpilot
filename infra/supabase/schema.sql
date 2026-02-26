@@ -41,6 +41,17 @@ create table if not exists metrics_events (
   timestamp timestamptz default now()
 );
 
+create table if not exists invite_codes (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  batch_id text,
+  created_at timestamptz default now(),
+  redeemed_at timestamptz,
+  redeemed_by uuid references users (id),
+  redeemed_ip text,
+  redeemed_ua text
+);
+
 alter table metrics_events
   add constraint metrics_event_type_check
   check (event_type in ('panel_open', 'generate_success', 'copy_success', 'paywall_shown', 'rewrite_click'));
@@ -48,11 +59,14 @@ alter table metrics_events
 create index if not exists personas_user_id_idx on personas (user_id);
 create index if not exists usage_logs_user_id_idx on usage_logs (user_id, timestamp);
 create index if not exists metrics_events_user_id_idx on metrics_events (user_id, timestamp);
+create index if not exists invite_codes_code_idx on invite_codes (code);
+create index if not exists invite_codes_redeemed_by_idx on invite_codes (redeemed_by);
 
 alter table users enable row level security;
 alter table personas enable row level security;
 alter table usage_logs enable row level security;
 alter table metrics_events enable row level security;
+alter table invite_codes enable row level security;
 
 create policy "Users can view self" on users
   for select using (auth.uid() = id);

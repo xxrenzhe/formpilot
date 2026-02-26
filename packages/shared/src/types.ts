@@ -39,7 +39,7 @@ export interface GenerateRequest {
 }
 
 export interface GenerateErrorResponse {
-  errorCode: "UNAUTHORIZED" | "FORBIDDEN" | "USAGE_LIMIT" | "MISSING_CONFIG"
+  errorCode: "UNAUTHORIZED" | "FORBIDDEN" | "USAGE_LIMIT" | "MISSING_CONFIG" | "INVALID_CODE"
   message: string
   upgradeUrl?: string
 }

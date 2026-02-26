@@ -9,6 +9,8 @@ import { createCheckoutHandler, stripeWebhookHandler } from "./routes/stripe"
 import { metricsHandler } from "./routes/metrics"
 import { metricsDailyHandler } from "./routes/metricsDaily"
 import { metricsFunnelHandler } from "./routes/metricsFunnel"
+import { redeemInviteHandler } from "./routes/invites"
+import { generateInvitesHandler } from "./routes/invitesAdmin"
 
 const app = new Hono()
 
@@ -35,6 +37,8 @@ app.post("/api/metrics", metricsHandler)
 app.get("/api/metrics/daily", metricsDailyHandler)
 app.get("/api/metrics/funnel", metricsFunnelHandler)
 app.post("/api/stripe/webhook", stripeWebhookHandler)
+app.post("/api/invites/redeem", redeemInviteHandler)
+app.post("/api/admin/invites/generate", generateInvitesHandler)
 
 serve({
   fetch: app.fetch,
