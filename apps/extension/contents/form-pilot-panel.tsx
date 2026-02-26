@@ -107,6 +107,8 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
   const [pendingCursor, setPendingCursor] = useState<number | null>(null)
   const [activeSlashIndex, setActiveSlashIndex] = useState(0)
   const promptInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const isLongDocLocked = plan === "free" && mode === "longDoc"
+  const hintPlaceholder = mode === "longDoc" ? "一句话概述你的方案或思路..." : "补充要求..."
 
   useEffect(() => {
     if (pendingCursor === null) return
@@ -319,12 +321,18 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
                   </div>
                 )}
 
+                {mode === "longDoc" && (
+                  <div className="rounded-lg border border-storm bg-slate-50 p-3 text-xs text-slate-600">
+                    文档生成模式：请在补充要求中输入核心思路，系统将输出带层级结构的完整文档。
+                  </div>
+                )}
+
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     className="flex-1 rounded-lg bg-ocean text-white px-3 py-2 text-xs font-semibold"
                     onClick={() => onStartGeneration()}
-                    disabled={isGenerating || !isLoggedIn}
+                    disabled={isGenerating || !isLoggedIn || isLongDocLocked}
                   >
                     {isGenerating ? "生成中" : "开始生成"}
                   </button>
@@ -364,7 +372,7 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
                   <textarea
                     className="w-full rounded-md border border-storm bg-white px-2 py-1 text-xs"
                     rows={3}
-                    placeholder="补充要求..."
+                    placeholder={hintPlaceholder}
                     value={userHint}
                     ref={promptInputRef}
                     onChange={handleUserHintChange}

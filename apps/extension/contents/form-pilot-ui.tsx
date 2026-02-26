@@ -249,8 +249,14 @@ export default function FormPilotUi() {
         return
       }
 
-    setTranslation("")
-    setReply("")
+      if (plan === "free" && mode === "longDoc") {
+        setError("长文档仅 Pro 可用")
+        void trackMetric("paywall_shown", { reason: "long_doc", mode })
+        return
+      }
+
+      setTranslation("")
+      setReply("")
       setIsGenerating(true)
       setError("")
       setUpgradeUrl("")
