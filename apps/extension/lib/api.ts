@@ -59,7 +59,13 @@ export async function createPersona(persona: Omit<UserPersona, "id">): Promise<U
   })
 
   if (!response.ok) {
-    return null
+    const text = await response.text()
+    try {
+      const data = JSON.parse(text) as { message?: string }
+      throw new Error(data.message || "保存失败")
+    } catch {
+      throw new Error(text || "保存失败")
+    }
   }
 
   const data = (await response.json()) as { persona: UserPersona }
@@ -81,7 +87,13 @@ export async function updatePersona(id: string, persona: Omit<UserPersona, "id">
   })
 
   if (!response.ok) {
-    return null
+    const text = await response.text()
+    try {
+      const data = JSON.parse(text) as { message?: string }
+      throw new Error(data.message || "保存失败")
+    } catch {
+      throw new Error(text || "保存失败")
+    }
   }
 
   const data = (await response.json()) as { persona: UserPersona }

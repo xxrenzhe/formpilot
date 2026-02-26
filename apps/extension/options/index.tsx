@@ -212,6 +212,7 @@ export default function OptionsPage() {
     const remaining = Math.max(usage.limit - usage.used, 0)
     return `已用 ${usage.used} 次，剩余 ${remaining} 次`
   }, [usage])
+  const showPersonaUpgrade = status.includes("人设数量已达上限")
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 text-ink">
@@ -480,7 +481,16 @@ export default function OptionsPage() {
           </section>
         )}
 
-        {status && <div className="text-sm text-slate-600">{status}</div>}
+        {status && (
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <span>{status}</span>
+            {showPersonaUpgrade && (
+              <button type="button" className="text-xs text-amber-700 underline" onClick={() => handleCheckout("pro-month")}>
+                升级 Pro
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
