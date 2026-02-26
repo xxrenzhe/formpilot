@@ -1,11 +1,12 @@
 import type { Context } from "hono"
 import { z } from "zod"
+import { METRIC_EVENT_TYPES } from "@formpilot/shared"
 import { getAuthUser } from "../auth"
 import { jsonError } from "../response"
 import { supabase } from "../db"
 
 const metricSchema = z.object({
-  eventType: z.string().min(1),
+  eventType: z.enum(METRIC_EVENT_TYPES),
   metadata: z.record(z.union([z.string(), z.number(), z.boolean()])).optional()
 })
 

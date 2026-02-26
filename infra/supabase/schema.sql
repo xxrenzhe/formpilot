@@ -41,6 +41,10 @@ create table if not exists metrics_events (
   timestamp timestamptz default now()
 );
 
+alter table metrics_events
+  add constraint metrics_event_type_check
+  check (event_type in ('panel_open', 'generate_success', 'copy_success', 'paywall_shown', 'rewrite_click'));
+
 create index if not exists personas_user_id_idx on personas (user_id);
 create index if not exists usage_logs_user_id_idx on usage_logs (user_id, timestamp);
 create index if not exists metrics_events_user_id_idx on metrics_events (user_id, timestamp);
@@ -61,6 +65,25 @@ create policy "Users can view usage logs" on usage_logs
 
 create policy "Users can view metrics" on metrics_events
   for select using (auth.uid() = user_id);
+
+create or replace view metrics_user_funnel as
+select
+  user_id,
+  min(case when event_type = 'generate_success' then timestamp end) as first_generate_at,
+  min(case when event_type = 'copy_success' then timestamp end) as first_copy_at,
+  min(case when event_type = 'paywall_shown' then timestamp end) as first_paywall_at
+from metrics_events
+group by user_id;
+
+create or replace view metrics_daily_kpis as
+select
+  date_trunc('day', timestamp) as day,
+  count(distinct case when event_type = 'panel_open' then user_id end) as panel_users,
+  count(distinct case when event_type = 'generate_success' then user_id end) as generate_users,
+  count(distinct case when event_type = 'copy_success' then user_id end) as copy_users,
+  count(distinct case when event_type = 'paywall_shown' then user_id end) as paywall_users
+from metrics_events
+group by date_trunc('day', timestamp);
 
 create or replace function enforce_single_default_persona()
 returns trigger as $$

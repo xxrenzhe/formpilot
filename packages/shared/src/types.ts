@@ -57,6 +57,14 @@ export type MetricEventType =
   | "paywall_shown"
   | "rewrite_click"
 
+export const METRIC_EVENT_TYPES: MetricEventType[] = [
+  "panel_open",
+  "generate_success",
+  "copy_success",
+  "paywall_shown",
+  "rewrite_click"
+]
+
 export interface MetricEventPayload {
   eventType: MetricEventType
   metadata?: Record<string, string | number | boolean>
