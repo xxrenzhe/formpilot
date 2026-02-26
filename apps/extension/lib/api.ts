@@ -226,3 +226,20 @@ export async function sendMetric(payload: MetricEventPayload): Promise<void> {
     body: JSON.stringify(payload)
   })
 }
+
+export async function fetchMetricsDaily(): Promise<
+  { day: string; panel_users: number; generate_users: number; copy_users: number; paywall_users: number }[]
+> {
+  const config = await getAppConfig()
+  const authHeader = await getAuthHeader()
+  if (!authHeader) return []
+
+  const response = await fetch(`${config.apiBaseUrl}/api/metrics/daily`, {
+    headers: {
+      Authorization: authHeader
+    }
+  })
+  if (!response.ok) return []
+  const data = (await response.json()) as { rows: any[] }
+  return data.rows || []
+}
