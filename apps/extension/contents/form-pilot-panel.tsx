@@ -332,6 +332,7 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
                 {mode === "longDoc" && (
                   <div className="rounded-lg border border-storm bg-slate-50 p-3 text-xs text-slate-600">
                     文档生成模式：请在补充要求中输入核心思路，系统将输出带层级结构的完整文档。
+                    <div className="mt-1 text-[11px] text-slate-500">结构参考：H1 标题 / H2 章节 / H3 要点。</div>
                   </div>
                 )}
 
