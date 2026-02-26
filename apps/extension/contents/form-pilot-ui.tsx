@@ -140,7 +140,14 @@ export default function FormPilotUi() {
     ) => {
       if (areaName !== "local") return
       if (changes.authState) {
-        setAuthState((changes.authState.newValue as AuthState | null) || null)
+        const nextState = (changes.authState.newValue as AuthState | null) || null
+        setAuthState(nextState)
+        if (nextState) {
+          refreshAccount()
+        } else {
+          setPlanState("unknown")
+          setPersonas([])
+        }
       }
     }
 
