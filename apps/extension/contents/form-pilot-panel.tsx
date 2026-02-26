@@ -111,7 +111,6 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
   const [pendingCursor, setPendingCursor] = useState<number | null>(null)
   const [activeSlashIndex, setActiveSlashIndex] = useState(0)
   const promptInputRef = useRef<HTMLTextAreaElement | null>(null)
-  const isLongDocLocked = plan === "free" && mode === "longDoc"
   const hintPlaceholder = mode === "longDoc" ? "一句话概述你的方案或思路..." : "补充要求..."
 
   useEffect(() => {
@@ -341,7 +340,7 @@ export default function FormPilotPanel(props: FormPilotPanelProps) {
                     type="button"
                     className="flex-1 rounded-lg bg-ocean text-white px-3 py-2 text-xs font-semibold"
                     onClick={() => onStartGeneration()}
-                    disabled={isGenerating || !isLoggedIn || isLongDocLocked}
+                    disabled={isGenerating || !isLoggedIn}
                   >
                     {isGenerating ? "生成中" : "开始生成"}
                   </button>
