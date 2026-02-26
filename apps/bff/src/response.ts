@@ -6,5 +6,5 @@ export function jsonError(
   status: number,
   payload: GenerateErrorResponse
 ): Response {
-  return c.json(payload, status)
+  return c.json(payload, status as Parameters<Context["json"]>[1])
 }

@@ -51,20 +51,15 @@ export interface UsageSummary {
   plan: UserPlan
 }
 
-export type MetricEventType =
-  | "panel_open"
-  | "generate_success"
-  | "copy_success"
-  | "paywall_shown"
-  | "rewrite_click"
-
-export const METRIC_EVENT_TYPES: MetricEventType[] = [
+export const METRIC_EVENT_TYPES = [
   "panel_open",
   "generate_success",
   "copy_success",
   "paywall_shown",
   "rewrite_click"
-]
+] as const
+
+export type MetricEventType = (typeof METRIC_EVENT_TYPES)[number]
 
 export interface MetricEventPayload {
   eventType: MetricEventType

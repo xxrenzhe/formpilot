@@ -19,5 +19,5 @@ export async function getAuthUser(c: Context): Promise<AuthUser | null> {
   const { data, error } = await supabase.auth.getUser(token)
   if (error || !data.user) return null
 
-  return { id: data.user.id, email: data.user.email }
+  return { id: data.user.id, email: data.user.email ?? null }
 }

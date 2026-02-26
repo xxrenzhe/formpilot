@@ -8,7 +8,7 @@ import { findUserByStripeCustomerId, getOrCreateUserRecord, updateUserPlan } fro
 
 function getStripeClient(): Stripe {
   const key = requireEnv(env.stripeSecretKey, "STRIPE_SECRET_KEY")
-  return new Stripe(key, { apiVersion: "2024-06-20" })
+  return new Stripe(key, { apiVersion: "2024-06-20" as Stripe.LatestApiVersion })
 }
 
 const checkoutSchema = z.object({
