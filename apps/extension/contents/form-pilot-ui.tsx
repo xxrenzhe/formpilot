@@ -16,6 +16,7 @@ export const config: PlasmoCSConfig = {
 }
 
 const PANEL_WIDTH = 380
+const PREVIEW_LIMIT = 100
 
 function isSupportedInput(target: HTMLElement): target is HTMLInputElement | HTMLTextAreaElement {
   const tag = target.tagName.toLowerCase()
@@ -57,6 +58,7 @@ export default function FormPilotUi() {
   const panelPosition = useMemo(() => calcPosition(anchorRect), [anchorRect])
   const activeElementRef = useRef<HTMLElement | null>(null)
   const copyTimerRef = useRef<number | null>(null)
+  const isLongDocLocked = plan === "free" && mode === "longDoc"
 
   const refreshAccount = useCallback(async () => {
     const auth = await getAuthState()
@@ -186,18 +188,19 @@ export default function FormPilotUi() {
 
     const parser = createStreamParser({
       onTranslation: (text) => setTranslation((prev) => prev + text),
-      onReply: (text) => setReply((prev) => prev + text)
+      onReply: (text) =>
+        setReply((prev) => {
+          if (!isLongDocLocked) return prev + text
+          if (prev.length >= PREVIEW_LIMIT) return prev
+          const remaining = PREVIEW_LIMIT - prev.length
+          return prev + text.slice(0, Math.max(0, remaining))
+        })
     })
 
     try {
       const persona = personas.find((item) => item.id === selectedPersonaId) || personas[0]
       if (!persona) {
         setError("请先配置人设")
-        return
-      }
-
-      if (plan === "free" && mode === "longDoc") {
-        setError("长文档仅 Pro 可用")
         return
       }
 
@@ -237,14 +240,14 @@ export default function FormPilotUi() {
   }, [activeField, authState, personas, selectedPersonaId, userHint, mode, plan])
 
   const handleCopy = useCallback(async () => {
-    if (!reply) return
+    if (!reply || isLongDocLocked) return
     await navigator.clipboard.writeText(reply)
     setCopied(true)
     if (copyTimerRef.current) {
       window.clearTimeout(copyTimerRef.current)
     }
     copyTimerRef.current = window.setTimeout(() => setCopied(false), 2000)
-  }, [reply])
+  }, [reply, isLongDocLocked])
 
   const usageLabel = useMemo(() => {
     if (!usage) return ""
@@ -320,8 +323,24 @@ export default function FormPilotUi() {
                     <span>{usageLabel}</span>
                   </div>
                 )}
-                <div className="rounded-lg border border-storm p-3 min-h-[120px] text-ink whitespace-pre-wrap">
-                  {reply || (isGenerating ? "正在生成..." : "点击生成")}
+                <div className="relative rounded-lg border border-storm p-3 min-h-[120px] text-ink whitespace-pre-wrap">
+                  <div className={isLongDocLocked && reply ? "pointer-events-none select-none" : ""}>
+                    {reply || (isGenerating ? "正在生成..." : "点击生成")}
+                  </div>
+                  {isLongDocLocked && reply && (
+                    <div className="absolute inset-0 flex items-end rounded-lg bg-gradient-to-t from-white via-white/80 to-transparent backdrop-blur-sm">
+                      <div className="flex w-full items-center justify-between px-3 py-2 text-xs text-amber-700">
+                        <span>仅预览前 {PREVIEW_LIMIT} 字，升级解锁完整文档</span>
+                        <button
+                          type="button"
+                          className="text-amber-700 underline"
+                          onClick={() => chrome.runtime.openOptionsPage()}
+                        >
+                          升级
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {error && (
@@ -350,14 +369,17 @@ export default function FormPilotUi() {
                     type="button"
                     className="flex-1 rounded-lg bg-ocean text-white px-3 py-2 text-xs font-semibold"
                     onClick={startGeneration}
-                    disabled={isGenerating || !authState || (plan === "free" && mode === "longDoc")}
+                    disabled={isGenerating || !authState}
                   >
                     {isGenerating ? "生成中" : "开始生成"}
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg border border-storm px-3 py-2 text-xs"
+                    className={`rounded-lg border border-storm px-3 py-2 text-xs ${
+                      isLongDocLocked ? "opacity-50 cursor-not-allowed" : ""
+                    }`}
                     onClick={handleCopy}
+                    disabled={isLongDocLocked}
                   >
                     {copied ? "已复制" : "一键复制"}
                   </button>
@@ -398,7 +420,11 @@ export default function FormPilotUi() {
 
                 {plan === "free" && (
                   <div className="flex items-center justify-between text-xs text-amber-600">
-                    <span>{mode === "longDoc" ? "长文档仅 Pro 可用" : "升级 Pro 解锁全站上下文与无限生成"}</span>
+                    <span>
+                      {mode === "longDoc"
+                        ? "长文档仅展示预览，升级解锁完整内容"
+                        : "升级 Pro 解锁全站上下文与无限生成"}
+                    </span>
                     <button
                       type="button"
                       className="text-xs text-amber-700 underline"
