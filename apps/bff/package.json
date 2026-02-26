@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
-    "@formpilot/shared": "workspace:*",
+    "@formpilot/shared": "0.1.0",
     "@supabase/supabase-js": "^2.49.1",
     "dotenv": "^16.4.5",
     "hono": "^4.5.0",

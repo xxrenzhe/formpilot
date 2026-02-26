@@ -8,7 +8,7 @@
     "lint": "node -e \"console.log('skip lint')\""
   },
   "dependencies": {
-    "@formpilot/shared": "workspace:*",
+    "@formpilot/shared": "0.1.0",
     "@plasmohq/storage": "^0.13.0",
     "@supabase/supabase-js": "^2.49.1",
     "plasmo": "^0.89.2",

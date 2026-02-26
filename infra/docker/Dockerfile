@@ -3,12 +3,15 @@ FROM node:20-alpine AS builder
 
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
+RUN npm i -g npm@11.11.0
 
 COPY package.json ./
+COPY package-lock.json ./
 COPY apps/bff/package.json apps/bff/package.json
 COPY packages/shared/package.json packages/shared/package.json
 
-RUN npm install
+ENV NPM_CONFIG_WORKSPACES=true
+RUN npm ci --workspaces --include-workspace-root
 
 COPY packages/shared ./packages/shared
 COPY apps/bff ./apps/bff
@@ -20,12 +23,15 @@ FROM node:20-alpine AS runner
 
 RUN apk add --no-cache libc6-compat nginx supervisor
 WORKDIR /app
+RUN npm i -g npm@11.11.0
 
 COPY package.json ./
+COPY package-lock.json ./
 COPY apps/bff/package.json apps/bff/package.json
 COPY packages/shared/package.json packages/shared/package.json
 
-RUN npm install --omit=dev
+ENV NPM_CONFIG_WORKSPACES=true
+RUN npm ci --omit=dev --workspaces --include-workspace-root
 
 COPY --from=builder /app/packages/shared/dist /app/packages/shared/dist
 COPY --from=builder /app/apps/bff/dist /app/apps/bff/dist
