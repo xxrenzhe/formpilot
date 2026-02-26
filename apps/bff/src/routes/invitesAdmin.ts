@@ -4,6 +4,8 @@ import { jsonError } from "../response"
 import { env } from "../config"
 import { supabase } from "../db"
 import { formatInviteCode, generateInviteCodes } from "../invites"
+import { requireAdmin } from "../admin"
+import { recordAdminAudit } from "../audit"
 
 const generateSchema = z.object({
   count: z.number().int().min(1).max(1000),
@@ -11,13 +13,14 @@ const generateSchema = z.object({
 })
 
 export async function generateInvitesHandler(c: Context): Promise<Response> {
-  if (!env.adminToken) {
-    return jsonError(c, 500, { errorCode: "MISSING_CONFIG", message: "未配置管理员令牌" })
-  }
-
+  let adminId: string | null = null
   const token = c.req.header("x-admin-token") || ""
-  if (token !== env.adminToken) {
-    return jsonError(c, 403, { errorCode: "FORBIDDEN", message: "无权限" })
+  if (token && env.adminToken && token === env.adminToken) {
+    adminId = null
+  } else {
+    const admin = await requireAdmin(c)
+    if (admin instanceof Response) return admin
+    adminId = admin.id
   }
 
   const payload = generateSchema.safeParse(await c.req.json())
@@ -33,6 +36,12 @@ export async function generateInvitesHandler(c: Context): Promise<Response> {
 
   const { error } = await supabase.from("invite_codes").insert(rows)
   if (error) throw error
+
+  await recordAdminAudit({
+    adminId,
+    actionType: "invite_generate",
+    metadata: { count: codes.length, batchId: payload.data.batchId || null }
+  })
 
   return c.json({
     batchId: payload.data.batchId || null,

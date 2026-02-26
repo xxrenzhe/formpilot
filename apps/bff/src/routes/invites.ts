@@ -6,6 +6,7 @@ import { ensureActivePlan, getOrCreateUserRecord } from "../user"
 import { supabase } from "../db"
 import { env } from "../config"
 import { normalizeInviteCode } from "../invites"
+import { recordAdminAudit } from "../audit"
 
 const redeemSchema = z.object({
   code: z.string().min(1)
@@ -64,6 +65,13 @@ export async function redeemInviteHandler(c: Context): Promise<Response> {
     .eq("id", userRecord.id)
 
   if (updateError) throw updateError
+
+  await recordAdminAudit({
+    adminId: null,
+    actionType: "invite_redeem",
+    targetId: userRecord.id,
+    metadata: { code: normalized }
+  })
 
   return c.json({ plan: "pro", trialEndsAt })
 }

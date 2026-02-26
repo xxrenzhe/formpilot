@@ -12,6 +12,7 @@ export const env = {
   stripePriceProYear: process.env.STRIPE_PRICE_PRO_YEAR || "",
   adminToken: process.env.ADMIN_TOKEN || "",
   inviteTrialDays: Number(process.env.INVITE_TRIAL_DAYS || 7),
+  corsOrigins: process.env.CORS_ORIGINS || "*",
   aiProvider: process.env.AI_PROVIDER || "openai",
   aiBaseUrl: process.env.AI_BASE_URL || "https://api.openai.com/v1",
   aiApiKey: process.env.AI_API_KEY || "",

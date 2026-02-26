@@ -7,8 +7,10 @@
   ],
   "scripts": {
     "dev:extension": "npm --workspace apps/extension run dev",
+    "dev:admin": "npm --workspace apps/admin run dev",
     "dev:bff": "npm --workspace apps/bff run dev",
     "build": "npm -ws run build",
+    "build:admin": "npm --workspace apps/admin run build",
     "lint": "npm -ws run lint"
   }
 }

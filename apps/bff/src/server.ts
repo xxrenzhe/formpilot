@@ -11,14 +11,27 @@ import { metricsDailyHandler } from "./routes/metricsDaily"
 import { metricsFunnelHandler } from "./routes/metricsFunnel"
 import { redeemInviteHandler } from "./routes/invites"
 import { generateInvitesHandler } from "./routes/invitesAdmin"
+import { listAdminUsersHandler, getAdminUserHandler } from "./routes/adminUsers"
+import { updateAdminPlanHandler } from "./routes/adminPlans"
+import { listAdminInvitesHandler, exportAdminInvitesHandler } from "./routes/adminInvites"
+import { adminAnalyticsHandler } from "./routes/adminAnalytics"
+import { adminSystemHealthHandler } from "./routes/adminSystem"
 
 const app = new Hono()
+
+const corsOrigin =
+  env.corsOrigins === "*" || !env.corsOrigins
+    ? "*"
+    : env.corsOrigins
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
 
 app.use(
   "*",
   cors({
-    origin: "*",
-    allowHeaders: ["Content-Type", "Authorization", "x-byok-key"],
+    origin: corsOrigin,
+    allowHeaders: ["Content-Type", "Authorization", "x-byok-key", "x-admin-token"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     maxAge: 86400
   })
@@ -39,6 +52,13 @@ app.get("/api/metrics/funnel", metricsFunnelHandler)
 app.post("/api/stripe/webhook", stripeWebhookHandler)
 app.post("/api/invites/redeem", redeemInviteHandler)
 app.post("/api/admin/invites/generate", generateInvitesHandler)
+app.get("/api/admin/users", listAdminUsersHandler)
+app.get("/api/admin/users/:id", getAdminUserHandler)
+app.put("/api/admin/users/:id/plan", updateAdminPlanHandler)
+app.get("/api/admin/invites", listAdminInvitesHandler)
+app.get("/api/admin/invites/export", exportAdminInvitesHandler)
+app.get("/api/admin/analytics/overview", adminAnalyticsHandler)
+app.get("/api/admin/system/health", adminSystemHealthHandler)
 
 serve({
   fetch: app.fetch,
