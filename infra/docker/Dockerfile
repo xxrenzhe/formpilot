@@ -17,6 +17,7 @@ RUN npm ci --workspaces --include-workspace-root
 COPY packages/shared ./packages/shared
 COPY apps/bff ./apps/bff
 COPY apps/admin ./apps/admin
+RUN mkdir -p /app/apps/admin/public
 
 ARG NEXT_PUBLIC_BFF_URL
 ARG NEXT_PUBLIC_SUPABASE_URL
