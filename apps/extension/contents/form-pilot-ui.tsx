@@ -2,7 +2,7 @@ import "../style.css"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { PlasmoCSConfig } from "plasmo"
-import type { FieldContext, GenerateMode, UserPersona, UserPlan } from "@formpilot/shared"
+import type { FieldContext, GenerateMode, UserPersona, UserPlan, UsageSummary } from "@formpilot/shared"
 import { isPiiField } from "@formpilot/shared"
 import { extractFieldContext, extractPageContext, detectLongDoc } from "./extractor"
 import { extractGlobalContext } from "./globalContext"
@@ -47,6 +47,7 @@ export default function FormPilotUi() {
   const [userHint, setUserHint] = useState("")
   const [mode, setMode] = useState<GenerateMode>("shortText")
   const [plan, setPlanState] = useState<UserPlan>("unknown")
+  const [usage, setUsage] = useState<UsageSummary | null>(null)
   const [isPii, setIsPii] = useState(false)
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null)
   const [isManualMode, setIsManualMode] = useState(false)
@@ -62,10 +63,11 @@ export default function FormPilotUi() {
     setAuthState(auth)
     if (!auth) return
 
-    const [usage, list] = await Promise.all([fetchUsage(), fetchPersonas()])
-    if (usage) {
-      setPlanState(usage.plan)
-      await setPlan(usage.plan)
+    const [usageData, list] = await Promise.all([fetchUsage(), fetchPersonas()])
+    if (usageData) {
+      setPlanState(usageData.plan)
+      setUsage(usageData)
+      await setPlan(usageData.plan)
     }
     if (list.length) {
       setPersonas(list)
@@ -147,6 +149,7 @@ export default function FormPilotUi() {
         } else {
           setPlanState("unknown")
           setPersonas([])
+          setUsage(null)
         }
       }
     }
@@ -222,6 +225,11 @@ export default function FormPilotUi() {
           byokKey: plan === "pro" ? config.byokKey : undefined
         }
       )
+      const usageData = await fetchUsage()
+      if (usageData) {
+        setUsage(usageData)
+        setPlanState(usageData.plan)
+      }
     } finally {
       parser.flush()
       setIsGenerating(false)
@@ -237,6 +245,13 @@ export default function FormPilotUi() {
     }
     copyTimerRef.current = window.setTimeout(() => setCopied(false), 2000)
   }, [reply])
+
+  const usageLabel = useMemo(() => {
+    if (!usage) return ""
+    if (usage.limit === -1) return `本月已用 ${usage.used} 次`
+    const remaining = Math.max(usage.limit - usage.used, 0)
+    return `本月剩余 ${remaining} 次`
+  }, [usage])
 
   if (!activeField && !isManualMode) return null
 
@@ -299,6 +314,12 @@ export default function FormPilotUi() {
                     {translation}
                   </div>
                 )}
+                {usageLabel && (
+                  <div className="flex items-center justify-between text-[11px] text-slate-500">
+                    <span>{plan === "pro" ? "Pro" : "Free"}</span>
+                    <span>{usageLabel}</span>
+                  </div>
+                )}
                 <div className="rounded-lg border border-storm p-3 min-h-[120px] text-ink whitespace-pre-wrap">
                   {reply || (isGenerating ? "正在生成..." : "点击生成")}
                 </div>
@@ -329,7 +350,7 @@ export default function FormPilotUi() {
                     type="button"
                     className="flex-1 rounded-lg bg-ocean text-white px-3 py-2 text-xs font-semibold"
                     onClick={startGeneration}
-                    disabled={isGenerating || !authState}
+                    disabled={isGenerating || !authState || (plan === "free" && mode === "longDoc")}
                   >
                     {isGenerating ? "生成中" : "开始生成"}
                   </button>
@@ -347,6 +368,14 @@ export default function FormPilotUi() {
                     <span>当前模式</span>
                     <span className="font-semibold text-ink">{mode === "longDoc" ? "文档" : "短文本"}</span>
                   </div>
+                  <select
+                    className="w-full rounded-md border border-storm bg-white px-2 py-1 text-xs"
+                    value={mode}
+                    onChange={(event) => setMode(event.target.value as GenerateMode)}
+                  >
+                    <option value="shortText">短文本</option>
+                    <option value="longDoc">长文档</option>
+                  </select>
                   <select
                     className="w-full rounded-md border border-storm bg-white px-2 py-1 text-xs"
                     value={selectedPersonaId}
@@ -367,8 +396,17 @@ export default function FormPilotUi() {
                   />
                 </div>
 
-                {plan === "free" && mode === "longDoc" && (
-                  <div className="text-xs text-amber-600">长文档仅 Pro 可用</div>
+                {plan === "free" && (
+                  <div className="flex items-center justify-between text-xs text-amber-600">
+                    <span>{mode === "longDoc" ? "长文档仅 Pro 可用" : "升级 Pro 解锁全站上下文与无限生成"}</span>
+                    <button
+                      type="button"
+                      className="text-xs text-amber-700 underline"
+                      onClick={() => chrome.runtime.openOptionsPage()}
+                    >
+                      升级
+                    </button>
+                  </div>
                 )}
               </>
             )}
