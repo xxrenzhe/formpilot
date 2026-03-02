@@ -12,11 +12,37 @@ import {
   type PromptTemplateRow
 } from "../../lib/api"
 
-type Scenario = "general" | "ads_compliance"
+function toPercent(value?: number): string {
+  return `${Math.round((value || 0) * 100)}%`
+}
+
+function toWeight(value?: number): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--"
+  return value.toFixed(2)
+}
+
+function toSignedWeight(value?: number): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--"
+  if (Math.abs(value) < 0.005) return "0.00"
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}`
+}
+
+function actionSuggestionLabel(value?: PromptPerformanceRow["actionSuggestion"]): string {
+  if (value === "increase_weight") return "建议提权"
+  if (value === "decrease_weight") return "建议降权"
+  if (value === "hold") return "建议持平"
+  return "继续收集样本"
+}
+
+function confidenceLabel(value?: PromptPerformanceRow["confidenceLevel"]): string {
+  if (value === "high") return "高"
+  if (value === "medium") return "中"
+  return "低"
+}
 
 export default function PromptsPage() {
   const { session } = useAuth()
-  const [scenario, setScenario] = useState<Scenario>("ads_compliance")
+  const scenario: "ads_compliance" = "ads_compliance"
   const [templates, setTemplates] = useState<PromptTemplateRow[]>([])
   const [performance, setPerformance] = useState<PromptPerformanceRow[]>([])
   const [selectedId, setSelectedId] = useState("")
@@ -26,6 +52,8 @@ export default function PromptsPage() {
   const [templateBody, setTemplateBody] = useState("")
   const [status, setStatus] = useState("")
   const [creating, setCreating] = useState(false)
+  const [applyingSuggestion, setApplyingSuggestion] = useState(false)
+  const [batchApplyingSuggestion, setBatchApplyingSuggestion] = useState(false)
   const [sandboxHint, setSandboxHint] = useState("Please draft a compliant appeal for business verification.")
   const [sandboxContext, setSandboxContext] = useState("Store URL: https://example.com\nReturn policy: https://example.com/returns")
   const [sandboxOutput, setSandboxOutput] = useState("")
@@ -35,6 +63,9 @@ export default function PromptsPage() {
     () => templates.find((item) => item.id === selectedId) || null,
     [templates, selectedId]
   )
+  const performanceById = useMemo(() => {
+    return new Map(performance.map((item) => [item.templateId, item]))
+  }, [performance])
 
   const load = async () => {
     if (!session) return
@@ -45,7 +76,7 @@ export default function PromptsPage() {
         fetchPromptPerformance(session.access_token)
       ])
       setTemplates(promptRows)
-      setPerformance(perfRows)
+      setPerformance(perfRows.filter((item) => item.scenario === scenario))
       if (!selectedId && promptRows[0]) {
         setSelectedId(promptRows[0].id)
       }
@@ -56,7 +87,7 @@ export default function PromptsPage() {
 
   useEffect(() => {
     void load()
-  }, [session, scenario])
+  }, [session])
 
   useEffect(() => {
     if (!selectedTemplate) return
@@ -67,9 +98,28 @@ export default function PromptsPage() {
   }, [selectedTemplate])
 
   const selectedPerformance = useMemo(
-    () => performance.find((item) => item.templateId === selectedId) || null,
-    [performance, selectedId]
+    () => performanceById.get(selectedId) || null,
+    [performanceById, selectedId]
   )
+  const canApplySuggestion = useMemo(() => {
+    if (!selectedPerformance) return false
+    if (selectedPerformance.actionSuggestion !== "increase_weight" && selectedPerformance.actionSuggestion !== "decrease_weight") {
+      return false
+    }
+    return Math.abs(selectedPerformance.suggestedDelta || 0) >= 0.01
+  }, [selectedPerformance])
+  const highConfidenceCandidates = useMemo(() => {
+    return templates
+      .map((template) => {
+        const perf = performanceById.get(template.id)
+        if (!perf) return null
+        if (perf.confidenceLevel !== "high") return null
+        if (perf.actionSuggestion !== "increase_weight" && perf.actionSuggestion !== "decrease_weight") return null
+        if (Math.abs(perf.suggestedDelta || 0) < 0.01) return null
+        return { template, perf }
+      })
+      .filter((item): item is { template: PromptTemplateRow; perf: PromptPerformanceRow } => Boolean(item))
+  }, [templates, performanceById])
 
   return (
     <div>
@@ -78,22 +128,7 @@ export default function PromptsPage() {
           <h2>Prompt 热更控制台</h2>
           <p>左侧挑模板，右侧编辑并立即生效（默认人工调权，插件反馈仅作参考）。</p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            type="button"
-            className={`button ${scenario === "ads_compliance" ? "" : "ghost"}`}
-            onClick={() => setScenario("ads_compliance")}
-          >
-            Ads
-          </button>
-          <button
-            type="button"
-            className={`button ${scenario === "general" ? "" : "ghost"}`}
-            onClick={() => setScenario("general")}
-          >
-            General
-          </button>
-        </div>
+        <span className="badge">Ads Only</span>
       </div>
 
       {status && <div className="notice">{status}</div>}
@@ -102,36 +137,75 @@ export default function PromptsPage() {
         <div className="card">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <h3 style={{ margin: 0 }}>模板列表</h3>
-            <button
-              type="button"
-              className="button ghost"
-              onClick={async () => {
-                if (!session) return
-                setCreating(true)
-                try {
-                  const created = await createPromptTemplate(session.access_token, {
-                    scenario,
-                    name: `New ${scenario} template`,
-                    templateBody: "Describe compliance strategy here.",
-                    weight: 1,
-                    active: true
-                  })
-                  setSelectedId(created.id)
-                  await load()
-                } catch (error) {
-                  setStatus(error instanceof Error ? error.message : "创建失败")
-                } finally {
-                  setCreating(false)
-                }
-              }}
-            >
-              {creating ? "创建中..." : "新建模板"}
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                className="button ghost"
+                disabled={!highConfidenceCandidates.length || batchApplyingSuggestion}
+                onClick={async () => {
+                  if (!session) return
+                  if (!highConfidenceCandidates.length) {
+                    setStatus("当前无可批量应用的高置信建议")
+                    return
+                  }
+
+                  setStatus("")
+                  setBatchApplyingSuggestion(true)
+                  try {
+                    await Promise.all(
+                      highConfidenceCandidates.map(({ template, perf }) =>
+                        updatePromptTemplate(session.access_token, template.id, {
+                          name: template.name,
+                          templateBody: template.templateBody,
+                          weight: perf.suggestedWeight,
+                          active: template.active
+                        })
+                      )
+                    )
+                    setStatus(`已批量更新 ${highConfidenceCandidates.length} 个高置信模板权重`)
+                    await load()
+                  } catch (error) {
+                    setStatus(error instanceof Error ? error.message : "批量调权失败")
+                  } finally {
+                    setBatchApplyingSuggestion(false)
+                  }
+                }}
+              >
+                {batchApplyingSuggestion
+                  ? "批量调权中..."
+                  : `批量应用高置信建议 (${highConfidenceCandidates.length})`}
+              </button>
+              <button
+                type="button"
+                className="button ghost"
+                onClick={async () => {
+                  if (!session) return
+                  setCreating(true)
+                  try {
+                    const created = await createPromptTemplate(session.access_token, {
+                      scenario,
+                      name: `New ${scenario} template`,
+                      templateBody: "Describe compliance strategy here.",
+                      weight: 1,
+                      active: true
+                    })
+                    setSelectedId(created.id)
+                    await load()
+                  } catch (error) {
+                    setStatus(error instanceof Error ? error.message : "创建失败")
+                  } finally {
+                    setCreating(false)
+                  }
+                }}
+              >
+                {creating ? "创建中..." : "新建模板"}
+              </button>
+            </div>
           </div>
 
           <div style={{ display: "grid", gap: 8 }}>
             {templates.map((row) => {
-              const perf = performance.find((item) => item.templateId === row.id)
+              const perf = performanceById.get(row.id)
               return (
                 <button
                   key={row.id}
@@ -142,7 +216,14 @@ export default function PromptsPage() {
                 >
                   <div style={{ fontWeight: 600 }}>{row.name}</div>
                   <div className="notice">权重 {row.weight} · {row.active ? "启用" : "停用"}</div>
-                  <div className="notice">采纳 {perf?.success || 0} / 拒绝 {perf?.fail || 0}</div>
+                  <div className="notice">近30天生成 {perf?.generated || 0} · 反馈 {perf?.feedbackTotal || 0}</div>
+                  <div className="notice">
+                    覆盖率 {toPercent(perf?.feedbackCoverage)} · 采纳率 {toPercent(perf?.adoptionRate)}
+                  </div>
+                  <div className="notice">
+                    质量分 {toPercent(perf?.qualityScore)} · {actionSuggestionLabel(perf?.actionSuggestion)} · 建议权重{" "}
+                    {toWeight(perf?.suggestedWeight)}
+                  </div>
                 </button>
               )
             })}
@@ -194,11 +275,46 @@ export default function PromptsPage() {
                 >
                   保存并发布
                 </button>
+                <button
+                  type="button"
+                  className="button ghost"
+                  disabled={!canApplySuggestion || applyingSuggestion}
+                  onClick={async () => {
+                    if (!session || !selectedTemplate || !selectedPerformance) return
+                    setStatus("")
+                    setApplyingSuggestion(true)
+                    try {
+                      const nextWeight = selectedPerformance.suggestedWeight
+                      await updatePromptTemplate(session.access_token, selectedTemplate.id, {
+                        name,
+                        templateBody,
+                        weight: nextWeight,
+                        active
+                      })
+                      setWeight(String(nextWeight))
+                      setStatus(`已按建议调权：${toWeight(selectedTemplate.weight)} → ${toWeight(nextWeight)}`)
+                      await load()
+                    } catch (error) {
+                      setStatus(error instanceof Error ? error.message : "建议调权失败")
+                    } finally {
+                      setApplyingSuggestion(false)
+                    }
+                  }}
+                >
+                  {applyingSuggestion ? "调权中..." : "按建议调权"}
+                </button>
               </div>
 
               {selectedPerformance && (
                 <div className="notice" style={{ marginTop: 12 }}>
-                  当前反馈: 采纳 {selectedPerformance.success} / 拒绝 {selectedPerformance.fail}
+                  近30天数据: 生成 {selectedPerformance.generated}（成功 {selectedPerformance.generationSuccess} /
+                  失败 {selectedPerformance.generationFail}），反馈 {selectedPerformance.feedbackTotal}（采纳{" "}
+                  {selectedPerformance.success} / 拒绝 {selectedPerformance.fail}），覆盖率{" "}
+                  {toPercent(selectedPerformance.feedbackCoverage)}，采纳率{" "}
+                  {toPercent(selectedPerformance.adoptionRate)}，质量分{" "}
+                  {toPercent(selectedPerformance.qualityScore)}（置信度{" "}
+                  {confidenceLabel(selectedPerformance.confidenceLevel)}，{actionSuggestionLabel(selectedPerformance.actionSuggestion)}）。建议权重{" "}
+                  {toWeight(selectedPerformance.suggestedWeight)}（{toSignedWeight(selectedPerformance.suggestedDelta)}）
                 </div>
               )}
 

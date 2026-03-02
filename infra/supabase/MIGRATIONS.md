@@ -14,6 +14,9 @@
 6. `migrations/20260302_0006_drop_users_plan.sql`
 7. `migrations/20260302_0007_credit_rpc_and_usage_sum.sql`
 8. `migrations/20260302_0008_feedback_event_semantics.sql`
+9. `migrations/20260302_0008a_device_claims_dedup_before_unique.sql`
+10. `migrations/20260302_0009_device_claims_unique_user.sql`
+11. `migrations/20260302_0010_device_claims_ip_rate_limit.sql`
 
 ## 启动自动执行（已接入 BFF）
 
@@ -43,11 +46,13 @@ BFF 现已在启动阶段自动按顺序执行迁移。对应实现见：
 1. 备份生产库。
 2. 确认服务端已经部署支持 `credits` 的 BFF（避免新老逻辑混跑）。
 3. 若历史 `metrics_events` 中存在非白名单 `event_type`，`0003` 会跳过新约束并输出 notice，不会中断迁移。
+4. `0008a` 会自动清理 `device_credit_claims.first_user_id` 的历史重复值（保留每个用户最早一条，其他置空），用于保障 `0009` 可顺利加唯一约束。
+5. `0010` 会为 `device_credit_claims` 增加 `claim_ip/claim_ua` 字段及索引，用于轻量反刷限流。
 
 ## 执行后校验
 
 1. `users` 表存在并可读写 `credits`。
-2. `device_credit_claims`、`compliance_profiles`、`prompt_templates`、`prompt_feedback` 表存在。
+2. `device_credit_claims`、`compliance_profiles`、`prompt_templates`、`prompt_feedback` 表存在，且 `device_credit_claims` 含 `claim_ip/claim_ua`。
 3. `usage_logs` 包含 `credits_cost/cost_tier/prompt_template_id/scenario`。
 4. `increment_user_credits`（返回最新余额）、`decrement_user_credits`、`get_lifetime_credits_used_sum` RPC 可调用。
 5. `prompt_templates` 至少包含 `Default ADS Compliance v1` 与 `Default General v1`。

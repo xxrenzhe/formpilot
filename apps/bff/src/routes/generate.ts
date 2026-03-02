@@ -8,10 +8,17 @@ import {
   type AppScenario
 } from "@formpilot/shared"
 import { streamSSE } from "hono/streaming"
-import { getAuthUser } from "../auth"
+import { getAuthUser, type AuthUser } from "../auth"
 import { jsonError } from "../response"
-import { ensureDeviceCreditGrant, getOrCreateUserRecord } from "../user"
-import { resolveCreditCost, hasEnoughCredits, recordUsage, tryDeductCredits, addCredits } from "../usage"
+import { ensureDeviceCreditGrant, getOrCreateUserRecord, type UserRecord } from "../user"
+import {
+  resolveCreditCost,
+  hasEnoughCredits,
+  recordUsage,
+  tryDeductCredits,
+  addCredits,
+  type CreditCostResult
+} from "../usage"
 import { streamGenerate } from "../ai"
 import { env } from "../config"
 import { summarizeContext } from "../context"
@@ -56,7 +63,18 @@ const generateSchema = z.object({
   globalContext: z.string().optional()
 })
 
-function resolveScenario(payload: z.infer<typeof generateSchema>): AppScenario {
+type GeneratePayload = z.infer<typeof generateSchema>
+
+interface PromptPreparationResult {
+  selectedTemplate: Awaited<ReturnType<typeof getWeightedPromptTemplate>>
+  missingFields: string[]
+  systemPrompt: string
+  userPrompt: string
+  modelOverride: string
+}
+
+function resolveScenario(payload: GeneratePayload): AppScenario {
+  if (env.adsOnlyMode) return "ads_compliance"
   if (payload.scenario) return payload.scenario
   if (
     isLikelyAdsScenario({
@@ -74,7 +92,20 @@ function resolveUpgradeMessage(required: number, balance: number): string {
   return `点数不足：本次生成需 ${required} 点，当前仅剩 ${balance} 点。请输入充值码后继续。`
 }
 
-export async function generateHandler(c: Context): Promise<Response> {
+function extractClientIp(c: Context): string {
+  return (
+    c.req.header("cf-connecting-ip") ||
+    c.req.header("x-forwarded-for") ||
+    c.req.header("x-real-ip") ||
+    ""
+  )
+}
+
+function extractUserAgent(c: Context): string {
+  return c.req.header("user-agent") || ""
+}
+
+async function requireAuthUser(c: Context): Promise<AuthUser | Response> {
   const authUser = await getAuthUser(c)
   if (!authUser) {
     return jsonError(c, 401, {
@@ -82,96 +113,150 @@ export async function generateHandler(c: Context): Promise<Response> {
       message: "未登录"
     })
   }
+  return authUser
+}
 
-  const payload = generateSchema.safeParse(await c.req.json())
-  if (!payload.success) {
+async function parseGeneratePayload(c: Context): Promise<GeneratePayload | Response> {
+  let rawPayload: unknown
+  try {
+    rawPayload = await c.req.json()
+  } catch {
     return jsonError(c, 400, {
       errorCode: "INVALID_PARAMS",
       message: "参数错误"
     })
   }
 
+  const parsedPayload = generateSchema.safeParse(rawPayload)
+  if (!parsedPayload.success) {
+    return jsonError(c, 400, {
+      errorCode: "INVALID_PARAMS",
+      message: "参数错误"
+    })
+  }
+
+  return parsedPayload.data
+}
+
+async function loadUserWithDeviceCredits(c: Context, authUser: AuthUser): Promise<UserRecord> {
   let userRecord = await getOrCreateUserRecord(authUser.id, authUser.email)
   const deviceId = c.req.header("x-device-id") || ""
   const grantResult = await ensureDeviceCreditGrant({
     userId: userRecord.id,
     deviceId,
+    claimIp: extractClientIp(c),
+    claimUa: extractUserAgent(c),
     currentCredits: userRecord.credits
   })
   userRecord = {
     ...userRecord,
     credits: grantResult.credits
   }
+  return userRecord
+}
 
-  const scenario = resolveScenario(payload.data)
-  const cost = resolveCreditCost(payload.data)
-  const hasContextPool = Boolean(payload.data.contextPool?.trim())
+function insufficientCreditsResponse(
+  c: Context,
+  requiredCredits: number,
+  currentCredits: number,
+  includeUpgradeUrl: boolean
+): Response {
+  return jsonError(c, 402, {
+    ...(includeUpgradeUrl ? { upgradeUrl: `${env.appBaseUrl}/recharge` } : {}),
+    currentCredits,
+    errorCode: "INSUFFICIENT_CREDITS",
+    message: resolveUpgradeMessage(requiredCredits, currentCredits),
+    requiredCredits
+  })
+}
 
-  if (!hasEnoughCredits(userRecord.credits, cost.cost)) {
-    return jsonError(c, 402, {
-      errorCode: "INSUFFICIENT_CREDITS",
-      message: resolveUpgradeMessage(cost.cost, userRecord.credits),
-      requiredCredits: cost.cost,
-      currentCredits: userRecord.credits,
-      upgradeUrl: `${env.appBaseUrl}/recharge`
-    })
+function ensureEnoughCredits(c: Context, userRecord: UserRecord, cost: CreditCostResult): Response | null {
+  if (hasEnoughCredits(userRecord.credits, cost.cost)) {
+    return null
   }
+  return insufficientCreditsResponse(c, cost.cost, userRecord.credits, true)
+}
 
+async function reserveCredits(
+  c: Context,
+  userRecord: UserRecord,
+  cost: CreditCostResult
+): Promise<Response | null> {
   const deducted = await tryDeductCredits(userRecord.id, cost.cost)
-  if (!deducted) {
-    return jsonError(c, 402, {
-      errorCode: "INSUFFICIENT_CREDITS",
-      message: resolveUpgradeMessage(cost.cost, userRecord.credits),
-      requiredCredits: cost.cost,
-      currentCredits: userRecord.credits
-    })
-  }
+  if (deducted) return null
+  return insufficientCreditsResponse(c, cost.cost, userRecord.credits, false)
+}
 
+function resolveModelOverride(scenario: AppScenario): string {
+  return scenario === "ads_compliance" ? env.aiModelAds || env.aiModel : env.aiModelGeneral || env.aiModel
+}
+
+async function preparePrompt(
+  payload: GeneratePayload,
+  userRecord: UserRecord,
+  scenario: AppScenario
+): Promise<PromptPreparationResult> {
+  const hasContextPool = Boolean(payload.contextPool?.trim())
   const shouldFetchProfile =
-    scenario === "ads_compliance" &&
-    !payload.data.complianceSnapshot &&
-    !(payload.data.mode === "longDoc" && hasContextPool)
+    scenario === "ads_compliance" && !payload.complianceSnapshot && !(payload.mode === "longDoc" && hasContextPool)
 
   const [profile, selectedTemplate] = await Promise.all([
-    payload.data.complianceSnapshot
-      ? Promise.resolve(payload.data.complianceSnapshot)
+    payload.complianceSnapshot
+      ? Promise.resolve(payload.complianceSnapshot)
       : shouldFetchProfile
         ? getComplianceProfile(userRecord.id)
         : Promise.resolve(null),
     getWeightedPromptTemplate(scenario)
   ])
+
   const missingFields =
-    scenario === "ads_compliance" && !(payload.data.mode === "longDoc" && hasContextPool)
+    scenario === "ads_compliance" && !(payload.mode === "longDoc" && hasContextPool)
       ? findComplianceMissingFields(profile || undefined)
       : []
 
   const contextPoolLimit = Number(process.env.CONTEXT_POOL_LIMIT || 12000)
-  const cleanedContextPool = payload.data.contextPool
-    ? summarizeContext(payload.data.contextPool, contextPoolLimit).summary
+  const cleanedContextPool = payload.contextPool
+    ? summarizeContext(payload.contextPool, contextPoolLimit).summary
     : undefined
-  const allowGlobalContext = payload.data.useGlobalContext !== false
+
+  const allowGlobalContext = payload.useGlobalContext !== false
   const contextLimit = Number(process.env.GLOBAL_CONTEXT_LIMIT || 8000)
   const cleanedContext =
-    allowGlobalContext && payload.data.globalContext
-      ? summarizeContext(payload.data.globalContext, contextLimit).summary
+    allowGlobalContext && payload.globalContext
+      ? summarizeContext(payload.globalContext, contextLimit).summary
       : undefined
 
   const systemPrompt = buildSystemPrompt({
     scenario,
-    pageContext: payload.data.pageContext,
-    fieldContext: payload.data.fieldContext,
+    pageContext: payload.pageContext,
+    fieldContext: payload.fieldContext,
     complianceProfile: profile || undefined,
     templateBody: selectedTemplate?.templateBody,
-    mode: payload.data.mode,
-    userHint: payload.data.userHint || "",
+    mode: payload.mode,
+    userHint: payload.userHint || "",
     contextPool: cleanedContextPool,
     globalContext: cleanedContext
   })
-  const userPrompt = buildUserPrompt(payload.data.mode)
 
-  const modelOverride =
-    scenario === "ads_compliance" ? env.aiModelAds || env.aiModel : env.aiModelGeneral || env.aiModel
+  return {
+    selectedTemplate,
+    missingFields,
+    systemPrompt,
+    userPrompt: buildUserPrompt(payload.mode),
+    modelOverride: resolveModelOverride(scenario)
+  }
+}
 
+function streamGenerateResponse(
+  c: Context,
+  params: {
+    userRecord: UserRecord
+    cost: CreditCostResult
+    scenario: AppScenario
+    prompt: PromptPreparationResult
+  }
+): Response {
+  const { userRecord, cost, scenario, prompt } = params
   return streamSSE(c, async (stream) => {
     try {
       await stream.writeSSE({
@@ -180,18 +265,18 @@ export async function generateHandler(c: Context): Promise<Response> {
           scenario,
           creditsCost: cost.cost,
           costTier: cost.tier,
-          templateId: selectedTemplate?.id || null,
-          missingFields
+          templateId: prompt.selectedTemplate?.id || null,
+          missingFields: prompt.missingFields
         })
       })
 
       await streamGenerate({
-        systemPrompt,
-        userPrompt,
+        systemPrompt: prompt.systemPrompt,
+        userPrompt: prompt.userPrompt,
         onToken: async (token) => {
           await stream.writeSSE({ data: token })
         },
-        modelOverride
+        modelOverride: prompt.modelOverride
       })
 
       await recordUsage({
@@ -200,7 +285,7 @@ export async function generateHandler(c: Context): Promise<Response> {
         tier: cost.tier,
         creditsCost: cost.cost,
         success: true,
-        templateId: selectedTemplate?.id || null,
+        templateId: prompt.selectedTemplate?.id || null,
         scenario
       })
     } catch (error) {
@@ -211,7 +296,7 @@ export async function generateHandler(c: Context): Promise<Response> {
         tier: cost.tier,
         creditsCost: cost.cost,
         success: false,
-        templateId: selectedTemplate?.id || null,
+        templateId: prompt.selectedTemplate?.id || null,
         scenario
       })
 
@@ -220,5 +305,31 @@ export async function generateHandler(c: Context): Promise<Response> {
         data: error instanceof Error ? error.message : "生成失败"
       })
     }
+  })
+}
+
+export async function generateHandler(c: Context): Promise<Response> {
+  const authUser = await requireAuthUser(c)
+  if (authUser instanceof Response) return authUser
+
+  const payload = await parseGeneratePayload(c)
+  if (payload instanceof Response) return payload
+
+  const userRecord = await loadUserWithDeviceCredits(c, authUser)
+  const scenario = resolveScenario(payload)
+  const cost = resolveCreditCost(payload)
+
+  const creditCheckError = ensureEnoughCredits(c, userRecord, cost)
+  if (creditCheckError) return creditCheckError
+
+  const reserveError = await reserveCredits(c, userRecord, cost)
+  if (reserveError) return reserveError
+
+  const prompt = await preparePrompt(payload, userRecord, scenario)
+  return streamGenerateResponse(c, {
+    userRecord,
+    cost,
+    scenario,
+    prompt
   })
 }

@@ -10,6 +10,12 @@ function dayKeyFromIso(iso: string): string {
   return date.toISOString().slice(0, 10)
 }
 
+function readMetricReason(metadata: unknown): string {
+  if (!metadata || typeof metadata !== "object") return ""
+  const value = (metadata as Record<string, unknown>).reason
+  return typeof value === "string" ? value : ""
+}
+
 export async function adminAnalyticsHandler(c: Context): Promise<Response> {
   const admin = await requireAdmin(c)
   if (admin instanceof Response) return admin
@@ -25,8 +31,8 @@ export async function adminAnalyticsHandler(c: Context): Promise<Response> {
 
   const { data: metricRows, error: metricError } = await supabase
     .from("metrics_events")
-    .select("timestamp,event_type")
-    .in("event_type", ["draft_accepted", "draft_rejected", "appeal_feedback_success", "appeal_feedback_fail"])
+    .select("timestamp,event_type,metadata")
+    .in("event_type", ["draft_accepted", "draft_rejected", "appeal_feedback_success", "appeal_feedback_fail", "paywall_shown"])
     .gte("timestamp", since)
   if (metricError) return jsonError(c, 500, { errorCode: "FORBIDDEN", message: "查询失败" })
 
@@ -41,34 +47,70 @@ export async function adminAnalyticsHandler(c: Context): Promise<Response> {
     usageByDay.set(key, current)
   })
 
-  const feedbackByDay = new Map<string, { success: number; fail: number }>()
+  const feedbackByDay = new Map<
+    string,
+    {
+      draftSuccess: number
+      draftFail: number
+      appealSuccess: number
+      appealFail: number
+      trialRateLimited: number
+    }
+  >()
   ;(metricRows || []).forEach((row) => {
     const key = dayKeyFromIso(row.timestamp || "")
-    const current = feedbackByDay.get(key) || { success: 0, fail: 0 }
-    if (row.event_type === "draft_accepted" || row.event_type === "appeal_feedback_success") current.success += 1
-    if (row.event_type === "draft_rejected" || row.event_type === "appeal_feedback_fail") current.fail += 1
+    const current = feedbackByDay.get(key) || {
+      draftSuccess: 0,
+      draftFail: 0,
+      appealSuccess: 0,
+      appealFail: 0,
+      trialRateLimited: 0
+    }
+    if (row.event_type === "draft_accepted") current.draftSuccess += 1
+    if (row.event_type === "draft_rejected") current.draftFail += 1
+    if (row.event_type === "appeal_feedback_success") current.appealSuccess += 1
+    if (row.event_type === "appeal_feedback_fail") current.appealFail += 1
+    if (row.event_type === "paywall_shown" && readMetricReason(row.metadata) === "trial_rate_limited") {
+      current.trialRateLimited += 1
+    }
     feedbackByDay.set(key, current)
   })
 
   const allDays = Array.from(new Set([...usageByDay.keys(), ...feedbackByDay.keys()])).sort()
   const daily = allDays.map((day) => {
     const usage = usageByDay.get(day) || { generated: 0, success: 0 }
-    const feedback = feedbackByDay.get(day) || { success: 0, fail: 0 }
+    const feedback = feedbackByDay.get(day) || {
+      draftSuccess: 0,
+      draftFail: 0,
+      appealSuccess: 0,
+      appealFail: 0,
+      trialRateLimited: 0
+    }
     return {
       day,
       ads_generated: usage.generated,
       generation_success: usage.success,
-      feedback_success: feedback.success,
-      feedback_fail: feedback.fail
+      draft_feedback_success: feedback.draftSuccess,
+      draft_feedback_fail: feedback.draftFail,
+      appeal_feedback_success: feedback.appealSuccess,
+      appeal_feedback_fail: feedback.appealFail,
+      trial_rate_limited: feedback.trialRateLimited
     }
   })
 
   const generatedAppeals = daily.reduce((sum, row) => sum + row.ads_generated, 0)
-  const successFeedback = daily.reduce((sum, row) => sum + row.feedback_success, 0)
-  const failFeedback = daily.reduce((sum, row) => sum + row.feedback_fail, 0)
-  const totalFeedback = successFeedback + failFeedback
-  const feedbackRate = generatedAppeals > 0 ? totalFeedback / generatedAppeals : 0
-  const approvalSignal = totalFeedback > 0 ? successFeedback / totalFeedback : 0
+  const draftSuccessFeedback = daily.reduce((sum, row) => sum + row.draft_feedback_success, 0)
+  const draftFailFeedback = daily.reduce((sum, row) => sum + row.draft_feedback_fail, 0)
+  const draftTotalFeedback = draftSuccessFeedback + draftFailFeedback
+  const draftFeedbackRate = generatedAppeals > 0 ? draftTotalFeedback / generatedAppeals : 0
+  const draftAdoptionSignal = draftTotalFeedback > 0 ? draftSuccessFeedback / draftTotalFeedback : 0
+
+  const appealSuccessFeedback = daily.reduce((sum, row) => sum + row.appeal_feedback_success, 0)
+  const appealFailFeedback = daily.reduce((sum, row) => sum + row.appeal_feedback_fail, 0)
+  const appealTotalFeedback = appealSuccessFeedback + appealFailFeedback
+  const appealFeedbackRate = generatedAppeals > 0 ? appealTotalFeedback / generatedAppeals : 0
+  const approvalSignal = appealTotalFeedback > 0 ? appealSuccessFeedback / appealTotalFeedback : 0
+  const trialRateLimitedCount = daily.reduce((sum, row) => sum + row.trial_rate_limited, 0)
 
   const promptPerformance = await getPromptPerformance()
 
@@ -76,10 +118,20 @@ export async function adminAnalyticsHandler(c: Context): Promise<Response> {
     daily,
     funnel: {
       generatedAppeals,
-      successFeedback,
-      failFeedback,
-      feedbackRate,
-      approvalSignal
+      draftSuccessFeedback,
+      draftFailFeedback,
+      draftFeedbackRate,
+      draftAdoptionSignal,
+      appealSuccessFeedback,
+      appealFailFeedback,
+      appealFeedbackRate,
+      approvalSignal,
+      trialRateLimitedCount,
+      // Legacy fields for backward compatibility.
+      // `successFeedback/failFeedback/feedbackRate` now map to draft-level signals.
+      successFeedback: draftSuccessFeedback,
+      failFeedback: draftFailFeedback,
+      feedbackRate: draftFeedbackRate
     },
     promptPerformance
   })

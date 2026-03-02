@@ -10,7 +10,10 @@
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `AI_API_KEY`
    - `AI_MODEL`（或 `AI_MODEL_GENERAL` / `AI_MODEL_ADS`）
+   - `ADS_ONLY_MODE=true`
    - `FREE_SIGNUP_CREDITS`（默认 20）
+   - `TRIAL_IP_CLAIM_WINDOW_HOURS`（默认 24）
+   - `TRIAL_IP_CLAIM_MAX_PER_WINDOW`（默认 4）
 3. Extension 已加载并可登录，`PLASMO_PUBLIC_BFF_URL` 指向当前 BFF。
 4. 准备两个测试账号（A、B）与同一浏览器设备。
 5. Admin 账号具备后台访问权限。
@@ -21,14 +24,15 @@
 1. 设备首赠拦截
    - 同一设备上，A 首次登录后调用 `/api/usage`，应获得 `credits=20`、`trialStatus=granted`。
    - 同设备切换 B 登录后调用 `/api/usage`，应为 `trialStatus=already_claimed` 且提示“该设备已体验过免费额度”。
+   - 同一网络在窗口期内高频触发新设备首赠后，`trialStatus` 应出现 `rate_limited`（提示暂不可发放）。
 2. 阶梯扣费准确性
    - `shortText` 扣 1 点。
    - `longDoc` 扣 5 点。
    - 含超长上下文/附件信号（upload/attachment 或超阈值）扣 10 点。
    - `usage_logs` 中 `credits_cost/cost_tier/scenario` 写入正确。
-3. 点数不足诱饵
+3. 点数不足拦截
    - 人为设置余额 < 所需点数，触发生成。
-   - 插件应展示首段文本并对后续内容模糊，出现“余额不足，输入充值码解锁”按钮。
+   - 插件应直接展示充值区块（无“先生成再模糊”诱饵）。
    - BFF 返回 `INSUFFICIENT_CREDITS`，包含 `requiredCredits/currentCredits`。
 4. 合规资料缺失提醒
    - 清空 `compliance_profiles` 关键字段后在 Ads 场景生成。
@@ -44,6 +48,9 @@
    - Content UI 运行在 `closed` ShadowRoot。
    - 网络请求通过 Background 代理，不由 Content Script 直连 BFF。
    - 默认无全局 `focusin` 高频监听，需快捷键/悬浮球/右键菜单主动触发。
+8. Ads-only 场景收口
+   - 发送 `scenario=general` 的生成/反馈请求时，服务端仍按 `ads_compliance` 处理。
+   - Admin Prompt 列表/新建/沙盒在 `ADS_ONLY_MODE=true` 下均只使用 `ads_compliance`。
 
 ## C. Admin 验收
 
@@ -72,6 +79,14 @@ RECHARGE_CODE=FP-ADS-XXXX-XXXX-XXXX-XXXX \
 npm run qa:recharge-flow
 ```
 
-## F. 判定标准
+## F. 落地页漏斗回归脚本
 
-全部 A/B/C/D/E 项通过，判定 ADS 场景优化方案达到“可上线落地”。
+可用脚本快速验证 Landing/Recharge 的关键漏斗保护项（CTA 不回退 `/login`、`/recharge` 入口存在、Nginx 域名映射存在）：
+
+```bash
+npm run qa:landing-funnel
+```
+
+## G. 判定标准
+
+全部 A/B/C/D/E/F 项通过，判定 ADS 场景优化方案达到“可上线落地”。

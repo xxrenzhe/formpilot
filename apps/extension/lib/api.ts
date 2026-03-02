@@ -135,6 +135,55 @@ function parseErrorResponse(body: string): GenerateErrorResponse {
   }
 }
 
+function isLikelyNetworkMessage(rawMessage: string): boolean {
+  const message = rawMessage.trim().toLowerCase()
+  if (!message) return false
+  return (
+    message.includes("network_error") ||
+    message.includes("networkerror") ||
+    message.includes("failed to fetch") ||
+    message.includes("network connection") ||
+    message.includes("load failed")
+  )
+}
+
+function toHumanReadableGenerateError(input: {
+  errorCode?: GenerateErrorResponse["errorCode"]
+  message?: string
+  status?: number
+}): string {
+  if (input.status === 0 || isLikelyNetworkMessage(input.message || "")) {
+    return "网络中断，请重试"
+  }
+
+  switch (input.errorCode) {
+    case "UNAUTHORIZED":
+      return "请先登录后再试"
+    case "INSUFFICIENT_CREDITS":
+      return "额度不足，请先充值"
+    case "INVALID_PARAMS":
+      return "请求参数异常，请重试"
+    case "USAGE_LIMIT":
+      return "调用过于频繁，请稍后重试"
+    case "MISSING_CONFIG":
+      return "服务暂不可用，请稍后再试"
+    case "MISSING_COMPLIANCE_PROFILE":
+      return "请先补齐合规资料后再试"
+    case "FORBIDDEN":
+      return "请求被拒绝，请稍后再试"
+    case "INVALID_CODE":
+      return "充值码无效，请核对后重试"
+    default:
+      break
+  }
+
+  if (input.status === 401) return "请先登录后再试"
+  if (input.status === 402) return "额度不足，请先充值"
+  if (input.status === 429) return "调用过于频繁，请稍后重试"
+
+  return "生成失败，请稍后重试"
+}
+
 export async function generateContent(
   payload: GenerateRequest,
   options: {
@@ -146,7 +195,7 @@ export async function generateContent(
   const config = await getAppConfig()
   const headers = await buildHeaders(true)
   if (!headers) {
-    options.onError("未登录")
+    options.onError("请先登录后再试")
     return
   }
 
@@ -204,7 +253,11 @@ export async function generateContent(
       return true
     }
     if (currentEvent === "error") {
-      options.onError(data || "生成失败")
+      options.onError(
+        toHumanReadableGenerateError({
+          message: data
+        })
+      )
       return true
     }
     if (currentEvent === "meta") {
@@ -253,14 +306,26 @@ export async function generateContent(
 
       if (message.type === "error-response") {
         const parsed = parseErrorResponse(message.body || "")
-        options.onError(parsed.message || "生成失败", parsed)
+        options.onError(
+          toHumanReadableGenerateError({
+            errorCode: parsed.errorCode,
+            message: parsed.message,
+            status: message.status
+          }),
+          parsed
+        )
         cleanup()
         resolve()
         return
       }
 
       if (message.type === "stream-error") {
-        options.onError(message.message || "生成失败")
+        options.onError(
+          toHumanReadableGenerateError({
+            message: message.message,
+            status: message.status
+          })
+        )
         cleanup()
         resolve()
         return
@@ -328,6 +393,33 @@ export async function sendPromptFeedback(payload: {
   })
   if (!response.ok) {
     throw new Error("反馈提交失败")
+  }
+}
+
+export async function sendAppealFeedback(payload: {
+  templateId: string
+  scenario: "general" | "ads_compliance"
+  outcome: "success" | "fail"
+}): Promise<boolean> {
+  const config = await getAppConfig()
+  const headers = await buildHeaders(true)
+  if (!headers) throw new Error("未登录")
+
+  const response = await proxyFetch({
+    url: `${config.apiBaseUrl}/api/appeal-feedback`,
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload)
+  })
+  if (!response.ok) {
+    throw new Error("过审结果提交失败")
+  }
+
+  try {
+    const data = JSON.parse(response.body) as { recorded?: boolean }
+    return Boolean(data.recorded)
+  } catch {
+    return true
   }
 }
 

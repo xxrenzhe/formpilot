@@ -2,6 +2,19 @@ export type GenerateMode = "shortText" | "longDoc"
 export type AppScenario = "general" | "ads_compliance"
 export type CreditCostTier = "short_text" | "long_doc" | "evidence_heavy"
 
+export interface CreditCostInput {
+  fieldContext: FieldContext
+  mode: GenerateMode
+  userHint?: string
+  globalContext?: string
+  contextPool?: string
+}
+
+export interface CreditCostResult {
+  tier: CreditCostTier
+  cost: number
+}
+
 export interface PageContext {
   title: string
   description: string
@@ -70,7 +83,7 @@ export interface GenerateErrorResponse {
 export interface UsageSummary {
   credits: number
   lifetimeUsed: number
-  trialStatus?: "granted" | "already_claimed" | "missing_device"
+  trialStatus?: "granted" | "already_claimed" | "missing_device" | "rate_limited"
   trialHint?: string
 }
 
@@ -86,7 +99,9 @@ export const METRIC_EVENT_TYPES = [
   "longdoc_copy_success",
   "longdoc_download",
   "draft_accepted",
-  "draft_rejected"
+  "draft_rejected",
+  "appeal_feedback_success",
+  "appeal_feedback_fail"
 ] as const
 
 export type MetricEventType = (typeof METRIC_EVENT_TYPES)[number]

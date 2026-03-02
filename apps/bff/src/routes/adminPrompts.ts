@@ -10,9 +10,10 @@ import {
   updatePromptTemplate
 } from "../promptTemplates"
 import { recordAdminAudit } from "../audit"
+import { env } from "../config"
 
 const promptSchema = z.object({
-  scenario: z.enum(["general", "ads_compliance"]),
+  scenario: z.enum(["general", "ads_compliance"]).optional(),
   name: z.string().min(1).max(120),
   templateBody: z.string().min(1).max(10000),
   weight: z.number().min(0.1).max(100),
@@ -30,9 +31,14 @@ export async function listAdminPromptsHandler(c: Context): Promise<Response> {
   const admin = await requireAdmin(c)
   if (admin instanceof Response) return admin
 
-  const scenario = c.req.query("scenario")
+  const queryScenario = c.req.query("scenario")
+  const scenario = env.adsOnlyMode
+    ? "ads_compliance"
+    : queryScenario === "general" || queryScenario === "ads_compliance"
+      ? (queryScenario as AppScenario)
+      : undefined
   const promptList = await listPromptTemplates(
-    scenario === "general" || scenario === "ads_compliance" ? (scenario as AppScenario) : undefined
+    scenario
   )
 
   return c.json({ prompts: promptList })
@@ -47,7 +53,10 @@ export async function createAdminPromptHandler(c: Context): Promise<Response> {
     return jsonError(c, 400, { errorCode: "FORBIDDEN", message: "参数错误" })
   }
 
-  const prompt = await createPromptTemplate(payload.data)
+  const prompt = await createPromptTemplate({
+    ...payload.data,
+    scenario: env.adsOnlyMode ? "ads_compliance" : payload.data.scenario || "general"
+  })
   await recordAdminAudit({
     adminId: admin.id,
     actionType: "prompt_create",

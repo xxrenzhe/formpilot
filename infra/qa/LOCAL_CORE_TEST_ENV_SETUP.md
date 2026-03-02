@@ -9,7 +9,7 @@
 - BFF 启动自动迁移（按顺序、幂等）
 - 启动自动创建/修正管理员并重置密码
 - Admin 登录与后台管理接口
-- Extension 调用生成接口（含普通场景与广告合规场景）
+- Extension 调用生成接口（Ads 合规单场景）
 - 点数扣减、邀请码功能
 
 ## 2. 前置准备
@@ -63,6 +63,7 @@ postgresql://postgres:<DB_PASSWORD>@db.<PROJECT_REF>.supabase.co:5432/postgres?s
 - `AI_PROVIDER`：默认 `openai`。
 - `AI_MODEL`：推荐先用 `gpt-4o-mini`。
 - `AI_MODEL_GENERAL` / `AI_MODEL_ADS`：可选，不填时回退到 `AI_MODEL`。
+- `ADS_ONLY_MODE`：推荐固定 `true`（默认即 true），强制所有生成/反馈落在 `ads_compliance` 场景。
 
 ### 4.3 BFF 与前端地址
 
@@ -104,8 +105,11 @@ AI_API_KEY=<AI_API_KEY>
 AI_MODEL=gpt-4o-mini
 AI_MODEL_GENERAL=
 AI_MODEL_ADS=
+ADS_ONLY_MODE=true
 
 FREE_SIGNUP_CREDITS=20
+TRIAL_IP_CLAIM_WINDOW_HOURS=24
+TRIAL_IP_CLAIM_MAX_PER_WINDOW=4
 GLOBAL_CONTEXT_LIMIT=6000
 ADMIN_TOKEN=
 
@@ -173,6 +177,18 @@ curl http://localhost:8787/health
 
 ```json
 {"status":"ok"}
+```
+
+5. 落地页漏斗保护检查
+
+```bash
+npm run qa:landing-funnel
+```
+
+预期返回：
+
+```text
+[pass] landing + recharge funnel guards passed
 ```
 
 ## 7. 常见问题排查

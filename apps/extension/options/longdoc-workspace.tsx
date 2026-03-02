@@ -1,7 +1,7 @@
 import "../style.css"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { ComplianceProfile, MetricEventType } from "@formpilot/shared"
+import { resolveCreditCost, type ComplianceProfile, type MetricEventType } from "@formpilot/shared"
 import { createStreamParser } from "../lib/streamParser"
 import { maskSensitiveText, restoreMaskedText } from "../lib/pii"
 import {
@@ -9,6 +9,7 @@ import {
   fetchUsage,
   generateContent,
   redeemInvite,
+  sendAppealFeedback,
   sendMetric,
   type GenerateMeta
 } from "../lib/api"
@@ -86,6 +87,8 @@ export function LongDocWorkspace() {
   const [rechargeStatus, setRechargeStatus] = useState("")
   const [recharging, setRecharging] = useState(false)
   const [sendContextPool, setSendContextPool] = useState(true)
+  const [appealFeedbackStatus, setAppealFeedbackStatus] = useState("")
+  const [appealFeedbackSubmitting, setAppealFeedbackSubmitting] = useState(false)
 
   const copyTimerRef = useRef<number | null>(null)
   const didTrackOpenRef = useRef(false)
@@ -164,13 +167,39 @@ export function LongDocWorkspace() {
   const hasDraftContent = Boolean(docTitle.trim() || goal.trim() || reference.trim())
   const hasContextPool = Boolean(reference.trim())
   const estimatedCost = useMemo(() => {
-    if (reference.trim().length > 7000) return 10
-    return 5
-  }, [reference])
+    return resolveCreditCost({
+      fieldContext: {
+        label: docTitle.trim() || "Appeal Topic",
+        placeholder: "Complete appeal body",
+        type: "textarea",
+        surroundingText: LONG_DOC_CONTEXT_DESCRIPTION
+      },
+      mode: "longDoc",
+      userHint: buildHint(goal),
+      contextPool: sendContextPool ? reference.trim() : ""
+    }).cost
+  }, [docTitle, goal, reference, sendContextPool])
   const complianceWarnings = useMemo(() => {
     const merged = [...(meta?.missingFields || []), ...missingFieldWarnings(profile, hasContextPool)]
     return Array.from(new Set(merged.filter((item) => item && item.trim())))
   }, [meta, profile, hasContextPool])
+
+  const showRechargeBlock = useCallback(
+    (requiredCredits: number, reason: "insufficient_credits" | "client_precheck") => {
+      const safeRequired = Math.max(requiredCredits || estimatedCost, 1)
+      setNeedRecharge(true)
+      setRequiredCredits(safeRequired)
+      setError("")
+      setStatus("")
+      setRechargeStatus(`当前余额不足。此任务需 ${safeRequired} 点，请先输入企业充值码。`)
+      void trackMetric("paywall_shown", {
+        reason,
+        mode: "longDoc",
+        requiredCredits: safeRequired
+      })
+    },
+    [estimatedCost, trackMetric]
+  )
 
   const handleSaveDraft = useCallback(async () => {
     if (!hasDraftContent) {
@@ -195,6 +224,7 @@ export function LongDocWorkspace() {
     setNeedRecharge(false)
     setRequiredCredits(0)
     setRechargeStatus("")
+    setAppealFeedbackStatus("")
 
     if (!isLoggedIn) {
       setError("请先登录后再生成")
@@ -204,8 +234,24 @@ export function LongDocWorkspace() {
     const hint = buildHint(goal)
     const contextPool = reference.trim()
     const effectiveContextPool = sendContextPool ? contextPool : ""
+    const fieldContext = {
+      label: docTitle.trim() || "Appeal Topic",
+      placeholder: "Complete appeal body",
+      type: "textarea",
+      surroundingText: LONG_DOC_CONTEXT_DESCRIPTION
+    }
+    const requiredCredits = resolveCreditCost({
+      fieldContext,
+      mode: "longDoc",
+      userHint: hint,
+      contextPool: effectiveContextPool
+    }).cost
     if (!hint && !effectiveContextPool) {
       setError("请先输入文档目标，或启用并填写 Context Pool")
+      return
+    }
+    if (credits < requiredCredits) {
+      showRechargeBlock(requiredCredits, "client_precheck")
       return
     }
 
@@ -243,12 +289,7 @@ export function LongDocWorkspace() {
             lang: "en",
             url: window.location.href
           },
-          fieldContext: {
-            label: docTitle.trim() || "Appeal Topic",
-            placeholder: "Complete appeal body",
-            type: "textarea",
-            surroundingText: LONG_DOC_CONTEXT_DESCRIPTION
-          },
+          fieldContext,
           scenario: "ads_compliance",
           complianceSnapshot: profile || undefined,
           userHint: maskedHint.masked,
@@ -262,19 +303,7 @@ export function LongDocWorkspace() {
           onError: (message, details) => {
             hadError = true
             if (details?.errorCode === "INSUFFICIENT_CREDITS") {
-              const required = details.requiredCredits || estimatedCost
-              setNeedRecharge(true)
-              setRequiredCredits(required)
-              setError("")
-              setStatus("")
-              setRechargeStatus(
-                `当前余额不足。此任务需 ${required} 点，请先输入企业充值码。`
-              )
-              void trackMetric("paywall_shown", {
-                reason: "insufficient_credits",
-                mode: "longDoc",
-                requiredCredits: required
-              })
+              showRechargeBlock(details.requiredCredits || requiredCredits, "insufficient_credits")
               return
             }
             setError(message || "生成失败")
@@ -296,7 +325,19 @@ export function LongDocWorkspace() {
       parser.flush()
       setIsGenerating(false)
     }
-  }, [isLoggedIn, goal, reference, docTitle, profile, trackMetric, credits, hasContextPool, sendContextPool])
+  }, [
+    isLoggedIn,
+    goal,
+    reference,
+    docTitle,
+    profile,
+    trackMetric,
+    credits,
+    estimatedCost,
+    hasContextPool,
+    sendContextPool,
+    showRechargeBlock
+  ])
 
   const handleRedeem = useCallback(async () => {
     if (!isLoggedIn) {
@@ -349,6 +390,35 @@ export function LongDocWorkspace() {
     URL.revokeObjectURL(url)
     void trackMetric("longdoc_download", { chars: output.length })
   }, [output, docTitle, trackMetric])
+
+  const handleAppealFeedback = useCallback(
+    async (outcome: "success" | "fail") => {
+      if (!isLoggedIn) {
+        setAppealFeedbackStatus("请先登录后再提交")
+        return
+      }
+      if (!meta?.templateId) {
+        setAppealFeedbackStatus("缺少模板追踪信息，请重新生成后再反馈")
+        return
+      }
+
+      setAppealFeedbackSubmitting(true)
+      setAppealFeedbackStatus("提交中...")
+      try {
+        const recorded = await sendAppealFeedback({
+          templateId: meta.templateId,
+          scenario: "ads_compliance",
+          outcome
+        })
+        setAppealFeedbackStatus(recorded ? "已记录最终过审结果" : "近期已记录，无需重复提交")
+      } catch (submitError) {
+        setAppealFeedbackStatus(submitError instanceof Error ? submitError.message : "提交失败")
+      } finally {
+        setAppealFeedbackSubmitting(false)
+      }
+    },
+    [isLoggedIn, meta]
+  )
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-slate-100">
@@ -470,6 +540,38 @@ export function LongDocWorkspace() {
                             [获取专属充值码]
                           </a>
                         </div>
+                      </div>
+                    )}
+                    {output && !needRecharge && (
+                      <div className="rounded-lg border border-slate-600 bg-slate-900/70 p-3">
+                        <div className="text-xs text-slate-300">
+                          提交平台审核后，可补录最终结果（用于过审信号）
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                            disabled={appealFeedbackSubmitting}
+                            onClick={() => {
+                              void handleAppealFeedback("success")
+                            }}
+                          >
+                            ✅ 过审成功
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                            disabled={appealFeedbackSubmitting}
+                            onClick={() => {
+                              void handleAppealFeedback("fail")
+                            }}
+                          >
+                            ❌ 仍被拒
+                          </button>
+                        </div>
+                        {appealFeedbackStatus && (
+                          <div className="mt-2 text-xs text-slate-300">{appealFeedbackStatus}</div>
+                        )}
                       </div>
                     )}
             {draftNotice && <div className="text-xs text-slate-300">{draftNotice}</div>}

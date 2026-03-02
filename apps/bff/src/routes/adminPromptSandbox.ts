@@ -1,12 +1,13 @@
 import type { Context } from "hono"
 import { z } from "zod"
-import { buildSystemPrompt, buildUserPrompt } from "@formpilot/shared"
+import { buildSystemPrompt, buildUserPrompt, type AppScenario } from "@formpilot/shared"
 import { requireAdmin } from "../admin"
 import { jsonError } from "../response"
 import { streamGenerate } from "../ai"
+import { env } from "../config"
 
 const sandboxSchema = z.object({
-  scenario: z.enum(["general", "ads_compliance"]),
+  scenario: z.enum(["general", "ads_compliance"]).optional(),
   templateBody: z.string().min(1).max(12000),
   userHint: z.string().max(3000).optional(),
   sampleGlobalContext: z.string().max(12000).optional(),
@@ -35,8 +36,9 @@ export async function promptSandboxHandler(c: Context): Promise<Response> {
   }
 
   const data = payload.data
+  const scenario: AppScenario = env.adsOnlyMode ? "ads_compliance" : data.scenario || "general"
   const systemPrompt = buildSystemPrompt({
-    scenario: data.scenario,
+    scenario,
     pageContext: {
       title: "Google Ads Appeal Sandbox",
       description: "Admin prompt sandbox preview",

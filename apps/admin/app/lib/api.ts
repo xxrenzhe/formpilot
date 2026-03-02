@@ -80,6 +80,18 @@ export interface PromptPerformanceRow {
   weight: number
   success: number
   fail: number
+  generated: number
+  generationSuccess: number
+  generationFail: number
+  generationSuccessRate: number
+  feedbackTotal: number
+  feedbackCoverage: number
+  adoptionRate: number
+  qualityScore: number
+  confidenceLevel: "low" | "medium" | "high"
+  actionSuggestion: "collect_more_data" | "increase_weight" | "decrease_weight" | "hold"
+  suggestedWeight: number
+  suggestedDelta: number
 }
 
 export interface PromptTemplateRow {
@@ -97,15 +109,30 @@ export interface AnalyticsOverview {
     day: string
     ads_generated: number
     generation_success: number
-    feedback_success: number
-    feedback_fail: number
+    draft_feedback_success: number
+    draft_feedback_fail: number
+    appeal_feedback_success: number
+    appeal_feedback_fail: number
+    trial_rate_limited?: number
+    // Legacy compatibility fields
+    feedback_success?: number
+    feedback_fail?: number
   }>
   funnel: {
     generatedAppeals: number
-    successFeedback: number
-    failFeedback: number
-    feedbackRate: number
+    draftSuccessFeedback: number
+    draftFailFeedback: number
+    draftFeedbackRate: number
+    draftAdoptionSignal: number
+    appealSuccessFeedback: number
+    appealFailFeedback: number
+    appealFeedbackRate: number
     approvalSignal: number
+    trialRateLimitedCount?: number
+    // Legacy compatibility fields
+    successFeedback?: number
+    failFeedback?: number
+    feedbackRate?: number
   }
   promptPerformance: PromptPerformanceRow[]
 }

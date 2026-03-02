@@ -16,3 +16,6 @@ jobs:
 
       - name: Block committed .env files
         run: bash infra/scripts/guard-env-files.sh tracked
+
+      - name: Guard landing and recharge funnel
+        run: bash infra/scripts/qa-landing-recharge-funnel.sh

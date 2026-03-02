@@ -8,6 +8,18 @@ function toPercent(value?: number): string {
   return `${Math.round((value || 0) * 100)}%`
 }
 
+function toWeight(value?: number): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--"
+  return value.toFixed(2)
+}
+
+function actionSuggestionLabel(value?: AnalyticsOverview["promptPerformance"][number]["actionSuggestion"]): string {
+  if (value === "increase_weight") return "提权"
+  if (value === "decrease_weight") return "降权"
+  if (value === "hold") return "持平"
+  return "收集样本"
+}
+
 export default function AnalyticsPage() {
   const { session } = useAuth()
   const [data, setData] = useState<AnalyticsOverview | null>(null)
@@ -26,8 +38,8 @@ export default function AnalyticsPage() {
     <div>
       <div className="hero">
         <div>
-          <h2>本周草稿采纳漏斗</h2>
-          <p>围绕 Ads 申诉生成与草稿采纳/拒绝反馈追踪。</p>
+          <h2>本周反馈双轨漏斗</h2>
+          <p>分离展示草稿采纳信号与最终过审信号，避免误导 Prompt 调权。</p>
         </div>
         <span className="badge">Prompt 在线热更</span>
       </div>
@@ -41,19 +53,39 @@ export default function AnalyticsPage() {
         </div>
         <div className="card">
           <div className="notice">草稿采纳数</div>
-          <h3>{funnel?.successFeedback ?? "--"}</h3>
+          <h3>{funnel?.draftSuccessFeedback ?? funnel?.successFeedback ?? "--"}</h3>
         </div>
         <div className="card">
           <div className="notice">草稿拒绝数</div>
-          <h3>{funnel?.failFeedback ?? "--"}</h3>
+          <h3>{funnel?.draftFailFeedback ?? funnel?.failFeedback ?? "--"}</h3>
         </div>
         <div className="card">
-          <div className="notice">反馈回收率</div>
-          <h3>{toPercent(funnel?.feedbackRate)}</h3>
+          <div className="notice">草稿回收率</div>
+          <h3>{toPercent(funnel?.draftFeedbackRate ?? funnel?.feedbackRate)}</h3>
         </div>
         <div className="card">
-          <div className="notice">采纳信号强度</div>
+          <div className="notice">草稿采纳强度</div>
+          <h3>{toPercent(funnel?.draftAdoptionSignal)}</h3>
+        </div>
+        <div className="card">
+          <div className="notice">过审成功反馈</div>
+          <h3>{funnel?.appealSuccessFeedback ?? "--"}</h3>
+        </div>
+        <div className="card">
+          <div className="notice">过审失败反馈</div>
+          <h3>{funnel?.appealFailFeedback ?? "--"}</h3>
+        </div>
+        <div className="card">
+          <div className="notice">过审反馈覆盖率</div>
+          <h3>{toPercent(funnel?.appealFeedbackRate)}</h3>
+        </div>
+        <div className="card">
+          <div className="notice">过审信号强度</div>
           <h3>{toPercent(funnel?.approvalSignal)}</h3>
+        </div>
+        <div className="card">
+          <div className="notice">试用风控拦截</div>
+          <h3>{funnel?.trialRateLimitedCount ?? 0}</h3>
         </div>
       </div>
 
@@ -70,8 +102,11 @@ export default function AnalyticsPage() {
               <th>日期</th>
               <th>Ads 生成</th>
               <th>生成成功</th>
-              <th>采纳</th>
-              <th>拒绝</th>
+              <th>草稿采纳</th>
+              <th>草稿拒绝</th>
+              <th>过审成功</th>
+              <th>过审失败</th>
+              <th>风控拦截</th>
             </tr>
           </thead>
           <tbody>
@@ -80,13 +115,16 @@ export default function AnalyticsPage() {
                 <td>{new Date(row.day).toLocaleDateString()}</td>
                 <td>{row.ads_generated}</td>
                 <td>{row.generation_success}</td>
-                <td>{row.feedback_success}</td>
-                <td>{row.feedback_fail}</td>
+                <td>{row.draft_feedback_success ?? row.feedback_success ?? 0}</td>
+                <td>{row.draft_feedback_fail ?? row.feedback_fail ?? 0}</td>
+                <td>{row.appeal_feedback_success ?? 0}</td>
+                <td>{row.appeal_feedback_fail ?? 0}</td>
+                <td>{row.trial_rate_limited ?? 0}</td>
               </tr>
             ))}
             {!data?.daily?.length && (
               <tr>
-                <td colSpan={5} className="notice">
+                <td colSpan={8} className="notice">
                   暂无数据
                 </td>
               </tr>
@@ -108,6 +146,12 @@ export default function AnalyticsPage() {
               <th>模板</th>
               <th>场景</th>
               <th>权重</th>
+              <th>近30天生成</th>
+              <th>反馈覆盖率</th>
+              <th>采纳率</th>
+              <th>质量分</th>
+              <th>建议</th>
+              <th>建议权重</th>
               <th>采纳</th>
               <th>拒绝</th>
             </tr>
@@ -118,13 +162,19 @@ export default function AnalyticsPage() {
                 <td>{row.name}</td>
                 <td>{row.scenario}</td>
                 <td>{row.weight}</td>
+                <td>{row.generated}</td>
+                <td>{toPercent(row.feedbackCoverage)}</td>
+                <td>{toPercent(row.adoptionRate)}</td>
+                <td>{toPercent(row.qualityScore)}</td>
+                <td>{actionSuggestionLabel(row.actionSuggestion)}</td>
+                <td>{toWeight(row.suggestedWeight)}</td>
                 <td>{row.success}</td>
                 <td>{row.fail}</td>
               </tr>
             ))}
             {!data?.promptPerformance?.length && (
               <tr>
-                <td colSpan={5} className="notice">
+                <td colSpan={11} className="notice">
                   暂无模板反馈数据
                 </td>
               </tr>

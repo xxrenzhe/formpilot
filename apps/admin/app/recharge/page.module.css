@@ -1,0 +1,169 @@
+.shell {
+  max-width: 840px;
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+  padding: 48px 40px;
+}
+
+.title {
+  margin: 0;
+  color: var(--landing-ink);
+  font-size: clamp(30px, 4vw, 38px);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  margin: 0;
+  max-width: 580px;
+  color: var(--landing-ink-soft);
+  font-size: 17px;
+  line-height: 1.65;
+}
+
+.pricingSection {
+  margin-top: 24px;
+}
+
+.pricingGrid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.priceCard {
+  text-align: center;
+  padding: 30px 24px;
+}
+
+.priceTitle {
+  margin: 0 0 12px;
+  color: var(--landing-ink);
+  font-size: 20px;
+}
+
+.credits {
+  margin: 0 0 8px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.price {
+  margin: 0 0 16px;
+  color: var(--landing-accent);
+  font-size: 42px;
+  font-weight: 900;
+}
+
+.priceNote {
+  margin: 0;
+  color: var(--landing-ink-soft);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.purchaseSection {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 40px;
+}
+
+.sectionTitle {
+  margin: 0;
+  color: var(--landing-ink);
+  font-size: 28px;
+  letter-spacing: -0.01em;
+}
+
+.purchasePanel {
+  width: 100%;
+  border: 1px dashed var(--landing-accent-strong);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.56);
+  padding: 24px;
+}
+
+.lead {
+  margin: 0;
+  color: var(--landing-ink-soft);
+  font-size: 17px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.paymentGrid {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.paymentCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.qrFrame {
+  width: 156px;
+  height: 156px;
+  border: 1px solid var(--landing-line);
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 8px;
+}
+
+.qrImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.paymentLabel {
+  color: var(--landing-ink);
+  font-weight: 700;
+}
+
+.paymentMeta {
+  color: var(--landing-ink-soft);
+  font-size: 14px;
+}
+
+.contactLine {
+  margin-top: 28px;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  color: var(--landing-ink-soft);
+  font-size: 15px;
+  flex-wrap: wrap;
+}
+
+.contactLink {
+  color: var(--landing-accent);
+  font-weight: 700;
+}
+
+@media (max-width: 980px) {
+  .hero {
+    padding: 28px 22px;
+  }
+
+  .purchaseSection {
+    padding: 26px 22px;
+  }
+
+  .paymentGrid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+}

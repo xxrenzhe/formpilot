@@ -26,10 +26,16 @@ drop table if exists personas;
 
 create table if not exists device_credit_claims (
   device_id text primary key,
-  first_user_id uuid references users (id) on delete set null,
+  first_user_id uuid unique references users (id) on delete set null,
   claimed_credits integer not null default 20,
+  claim_ip text,
+  claim_ua text,
   created_at timestamptz default now()
 );
+
+alter table device_credit_claims
+  add column if not exists claim_ip text,
+  add column if not exists claim_ua text;
 
 create table if not exists compliance_profiles (
   user_id uuid primary key references users (id) on delete cascade,
@@ -153,6 +159,7 @@ create index if not exists invite_codes_code_idx on invite_codes (code);
 create index if not exists invite_codes_redeemed_by_idx on invite_codes (redeemed_by);
 create index if not exists invite_codes_batch_note_idx on invite_codes (batch_note);
 create index if not exists device_credit_claims_user_idx on device_credit_claims (first_user_id);
+create index if not exists device_credit_claims_claim_ip_created_at_idx on device_credit_claims (claim_ip, created_at desc);
 
 alter table users enable row level security;
 alter table compliance_profiles enable row level security;
@@ -245,7 +252,25 @@ insert into prompt_templates (scenario, name, template_body, weight, active)
 select
   'ads_compliance',
   'Default ADS Compliance v1',
-  'You are a Google Ads compliance appeal specialist. Use factual, structured bullets, policy-safe wording, and clear commitments.',
+  'You are a Google Ads/Merchant Center senior compliance escalation specialist. 
+
+CORE OBJECTIVE: 
+Write a highly factual, structured, and legally-sound appeal or business verification response. 
+
+TONE & STYLE:
+- Extremely professional, direct, and factual. No emotional language or generic apologies.
+- Use structured bullet points. Prioritize readability for the policy review team.
+- Focus strictly on business operations, supply chain transparency, and policy adherence.
+
+REQUIRED STRUCTURE:
+1. Direct Statement of Intent (State the core issue being addressed).
+2. Business Model & Operations (Clear explanation of what the business does, how it operates, and fulfillment methods).
+3. Evidence/Safeguards (Refer to specific documentation, tracking numbers, or policy changes made internally).
+4. Commitment to Policy (A concise closing statement reaffirming strict adherence to Google Policies).
+
+CONSTRAINTS:
+- NEVER invent fake tracking numbers, tax IDs, or company names unless explicitly provided.
+- Ensure the tone matches a legitimate corporate entity addressing a serious compliance audit.',
   1,
   true
 where not exists (

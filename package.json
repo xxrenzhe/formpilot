@@ -9,12 +9,13 @@
     "dev:extension": "npm --workspace apps/extension run dev",
     "dev:admin": "npm --workspace apps/admin run dev",
     "dev:bff": "npm --workspace apps/bff run dev",
-    "build": "npm -ws run build",
+    "build": "npm --workspaces run build",
     "build:admin": "npm --workspace apps/admin run build",
-    "lint": "npm -ws run lint",
+    "lint": "npm --workspaces run lint",
     "prepare": "bash infra/scripts/setup-git-hooks.sh",
     "guard:env:staged": "bash infra/scripts/guard-env-files.sh staged",
     "guard:env:tracked": "bash infra/scripts/guard-env-files.sh tracked",
-    "qa:recharge-flow": "bash infra/scripts/qa-recharge-regenerate.sh"
+    "qa:recharge-flow": "bash infra/scripts/qa-recharge-regenerate.sh",
+    "qa:landing-funnel": "bash infra/scripts/qa-landing-recharge-funnel.sh"
   }
 }

@@ -1,5 +1,11 @@
 import styles from "./page.module.css"
 
+const extensionStoreUrlEnv = process.env.NEXT_PUBLIC_EXTENSION_STORE_URL?.trim()
+const EXTENSION_STORE_URL =
+  extensionStoreUrlEnv && !extensionStoreUrlEnv.includes("<extension-id>")
+    ? extensionStoreUrlEnv
+    : "https://chromewebstore.google.com/search/FormPilot"
+
 const VALUE_ITEMS = [
   {
     title: "设备指纹防刷防关联",
@@ -47,10 +53,10 @@ export default function LandingPage() {
               100% 对齐 Google 审核风控语义，硬解长篇业务运营验证表单（Verify your business operations）。端侧极密脱敏，叠加高胜率 Prompt 引擎。目标不是“写得漂亮”，而是让账号直接恢复投放与获得高级权限。
             </p>
             <div className={styles.ctaRow}>
-              <a href="/login" className={styles.primaryCta}>
+              <a href={EXTENSION_STORE_URL} target="_blank" rel="noreferrer" className={styles.primaryCta}>
                 获取企业体验点数
               </a>
-              <a href="/login" className={styles.secondaryCta}>
+              <a href="/recharge" className={styles.secondaryCta}>
                 联系客服购买授权码
               </a>
             </div>

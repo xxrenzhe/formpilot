@@ -1,0 +1,1 @@
+alter table device_credit_claims add constraint device_credit_claims_first_user_id_key unique (first_user_id);

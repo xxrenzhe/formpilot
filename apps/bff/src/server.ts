@@ -16,6 +16,7 @@ import { adminAnalyticsHandler } from "./routes/adminAnalytics"
 import { adminSystemHealthHandler } from "./routes/adminSystem"
 import { getComplianceProfileHandler, upsertComplianceProfileHandler } from "./routes/compliance"
 import { promptFeedbackHandler } from "./routes/promptFeedback"
+import { appealFeedbackHandler } from "./routes/appealFeedback"
 import {
   createAdminPromptHandler,
   listAdminPromptsHandler,
@@ -53,6 +54,7 @@ app.post("/api/invites/redeem", redeemInviteHandler)
 app.get("/api/compliance-profile", getComplianceProfileHandler)
 app.put("/api/compliance-profile", upsertComplianceProfileHandler)
 app.post("/api/prompt-feedback", promptFeedbackHandler)
+app.post("/api/appeal-feedback", appealFeedbackHandler)
 app.post("/api/admin/invites/generate", generateInvitesHandler)
 app.get("/api/admin/users", listAdminUsersHandler)
 app.get("/api/admin/users/:id", getAdminUserHandler)

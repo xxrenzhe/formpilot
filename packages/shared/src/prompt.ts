@@ -1,4 +1,12 @@
-import type { AppScenario, ComplianceProfile, FieldContext, GenerateMode, PageContext } from "./types"
+import type {
+  AppScenario,
+  ComplianceProfile,
+  CreditCostInput,
+  CreditCostResult,
+  FieldContext,
+  GenerateMode,
+  PageContext
+} from "./types"
 
 interface BuildPromptInput {
   scenario: AppScenario
@@ -123,4 +131,31 @@ export function isLikelyAdsScenario(input: { url?: string; title?: string; descr
     combined.includes("appeal") ||
     combined.includes("token application")
   )
+}
+
+export function resolveCreditCost(input: CreditCostInput): CreditCostResult {
+  const contextLength = (input.globalContext || "").length
+  const contextPoolLength = (input.contextPool || "").length
+  const hintLength = (input.userHint || "").length
+  const fieldType = input.fieldContext.type.toLowerCase()
+  const fieldSignal = `${input.fieldContext.label} ${input.fieldContext.placeholder} ${
+    input.fieldContext.surroundingText || ""
+  }`.toLowerCase()
+
+  if (
+    contextLength > 7000 ||
+    contextPoolLength > 7000 ||
+    hintLength > 2500 ||
+    fieldType.includes("file") ||
+    fieldSignal.includes("upload") ||
+    fieldSignal.includes("attachment")
+  ) {
+    return { tier: "evidence_heavy", cost: 10 }
+  }
+
+  if (input.mode === "longDoc") {
+    return { tier: "long_doc", cost: 5 }
+  }
+
+  return { tier: "short_text", cost: 1 }
 }
