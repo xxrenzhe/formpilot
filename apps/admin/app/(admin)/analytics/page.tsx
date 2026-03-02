@@ -4,6 +4,10 @@ import { useEffect, useState } from "react"
 import { useAuth } from "../../lib/auth"
 import { fetchAnalytics, type AnalyticsOverview } from "../../lib/api"
 
+function toPercent(value?: number): string {
+  return `${Math.round((value || 0) * 100)}%`
+}
+
 export default function AnalyticsPage() {
   const { session } = useAuth()
   const [data, setData] = useState<AnalyticsOverview | null>(null)
@@ -17,74 +21,114 @@ export default function AnalyticsPage() {
   }, [session])
 
   const funnel = data?.funnel
-  const toPercent = (value?: number) => `${Math.round((value || 0) * 100)}%`
 
   return (
     <div>
       <div className="hero">
         <div>
-          <h2>转化概览</h2>
-          <p>基于最近 30 天的漏斗与付费转化。</p>
+          <h2>本周过审率漏斗</h2>
+          <p>围绕 Ads 申诉生成与成功/失败反馈追踪。</p>
         </div>
-        <span className="badge">实时更新</span>
+        <span className="badge">Prompt 在线热更</span>
       </div>
 
       {status && <div className="notice">{status}</div>}
 
       <div className="grid cols-3">
         <div className="card">
-          <div className="notice">DAU / MAU</div>
-          <h3>{funnel ? `${funnel.dau} / ${funnel.mau}` : "--"}</h3>
+          <div className="notice">Ads 申诉生成数</div>
+          <h3>{funnel?.generatedAppeals ?? "--"}</h3>
         </div>
         <div className="card">
-          <div className="notice">生成 → 复制</div>
-          <h3>{toPercent(funnel?.ahaRate)}</h3>
+          <div className="notice">成功反馈数</div>
+          <h3>{funnel?.successFeedback ?? "--"}</h3>
         </div>
         <div className="card">
-          <div className="notice">生成 → Paywall</div>
-          <h3>{toPercent(funnel?.paywallRate)}</h3>
+          <div className="notice">失败反馈数</div>
+          <h3>{funnel?.failFeedback ?? "--"}</h3>
         </div>
         <div className="card">
-          <div className="notice">付费转化率</div>
-          <h3>{toPercent(funnel?.paidConversionRate)}</h3>
+          <div className="notice">反馈回收率</div>
+          <h3>{toPercent(funnel?.feedbackRate)}</h3>
         </div>
         <div className="card">
-          <div className="notice">付费用户数</div>
-          <h3>{funnel?.paidUsers ?? "--"}</h3>
-        </div>
-        <div className="card">
-          <div className="notice">生成用户数</div>
-          <h3>{funnel?.generateUsers ?? "--"}</h3>
+          <div className="notice">成功信号强度</div>
+          <h3>{toPercent(funnel?.approvalSignal)}</h3>
         </div>
       </div>
 
       <div className="card" style={{ marginTop: 20 }}>
         <div className="hero" style={{ marginBottom: 16 }}>
           <div>
-            <h3 style={{ margin: 0 }}>每日指标</h3>
-            <p>Panel/生成/复制/Paywall 的日级趋势。</p>
+            <h3 style={{ margin: 0 }}>每日漏斗明细</h3>
+            <p>按日查看生成成功与反馈质量。</p>
           </div>
         </div>
         <table className="table">
           <thead>
             <tr>
               <th>日期</th>
-              <th>打开</th>
-              <th>生成</th>
-              <th>复制</th>
-              <th>Paywall</th>
+              <th>Ads 生成</th>
+              <th>生成成功</th>
+              <th>反馈成功</th>
+              <th>反馈失败</th>
             </tr>
           </thead>
           <tbody>
             {(data?.daily || []).map((row) => (
               <tr key={row.day}>
                 <td>{new Date(row.day).toLocaleDateString()}</td>
-                <td>{row.panel_users}</td>
-                <td>{row.generate_users}</td>
-                <td>{row.copy_users}</td>
-                <td>{row.paywall_users}</td>
+                <td>{row.ads_generated}</td>
+                <td>{row.generation_success}</td>
+                <td>{row.feedback_success}</td>
+                <td>{row.feedback_fail}</td>
               </tr>
             ))}
+            {!data?.daily?.length && (
+              <tr>
+                <td colSpan={5} className="notice">
+                  暂无数据
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="hero" style={{ marginBottom: 12 }}>
+          <div>
+            <h3 style={{ margin: 0 }}>模板表现</h3>
+            <p>用于识别近期失败激增的模板。</p>
+          </div>
+        </div>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>模板</th>
+              <th>场景</th>
+              <th>权重</th>
+              <th>成功</th>
+              <th>失败</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(data?.promptPerformance || []).map((row) => (
+              <tr key={row.templateId}>
+                <td>{row.name}</td>
+                <td>{row.scenario}</td>
+                <td>{row.weight}</td>
+                <td>{row.success}</td>
+                <td>{row.fail}</td>
+              </tr>
+            ))}
+            {!data?.promptPerformance?.length && (
+              <tr>
+                <td colSpan={5} className="notice">
+                  暂无模板反馈数据
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

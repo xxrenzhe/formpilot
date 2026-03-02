@@ -5,30 +5,23 @@ import { supabase } from "../db"
 import { jsonError } from "../response"
 import { recordAdminAudit } from "../audit"
 
-const planSchema = z.object({
-  plan: z.enum(["free", "pro"]),
-  currentPeriodEnd: z.string().datetime().nullable().optional()
+const creditsSchema = z.object({
+  credits: z.number().int().min(0).max(100000)
 })
 
-export async function updateAdminPlanHandler(c: Context): Promise<Response> {
+export async function updateAdminCreditsHandler(c: Context): Promise<Response> {
   const admin = await requireAdmin(c)
   if (admin instanceof Response) return admin
 
   const userId = c.req.param("id")
-  const payload = planSchema.safeParse(await c.req.json())
+  const payload = creditsSchema.safeParse(await c.req.json())
   if (!payload.success) {
     return jsonError(c, 400, { errorCode: "FORBIDDEN", message: "参数错误" })
   }
 
-  const nextPlan = payload.data.plan
-  const nextEnd = nextPlan === "free" ? null : payload.data.currentPeriodEnd || null
-
   const { data, error } = await supabase
     .from("users")
-    .update({
-      plan: nextPlan,
-      current_period_end: nextEnd
-    })
+    .update({ credits: payload.data.credits })
     .eq("id", userId)
     .select("id")
     .maybeSingle()
@@ -40,9 +33,11 @@ export async function updateAdminPlanHandler(c: Context): Promise<Response> {
 
   await recordAdminAudit({
     adminId: admin.id,
-    actionType: "plan_update",
+    actionType: "credits_update",
     targetId: userId,
-    metadata: { plan: nextPlan, currentPeriodEnd: nextEnd }
+    metadata: {
+      credits: payload.data.credits
+    }
   })
 
   return c.json({ success: true })

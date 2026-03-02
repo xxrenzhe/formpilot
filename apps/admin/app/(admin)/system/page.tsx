@@ -4,11 +4,10 @@ import { useEffect, useState } from "react"
 import { useAuth } from "../../lib/auth"
 import { fetchSystemHealth, type SystemHealth } from "../../lib/api"
 
-function StatusBadge({ ok, label, status }: { ok: boolean; label: string; status?: string }) {
-  const className = status === "disabled" ? "status-warn" : ok ? "status-ok" : "status-bad"
+function StatusBadge({ ok, label }: { ok: boolean; label: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <span className={`status-dot ${className}`} />
+      <span className={`status-dot ${ok ? "status-ok" : "status-bad"}`} />
       <span>{label}</span>
     </div>
   )
@@ -31,7 +30,7 @@ export default function SystemPage() {
       <div className="hero">
         <div>
           <h2>系统健康</h2>
-          <p>检查服务可用性与最近错误。</p>
+          <p>检查 API、数据库与模板可用性。</p>
         </div>
       </div>
 
@@ -43,11 +42,9 @@ export default function SystemPage() {
           <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
             <StatusBadge ok={data?.bff.ok ?? false} label="BFF API" />
             <StatusBadge ok={data?.supabase.ok ?? false} label="Supabase" />
-            <StatusBadge
-              ok={data?.stripe.ok ?? false}
-              status={data?.stripe.status}
-              label={`Stripe (${data?.stripe.status || "unknown"})`}
-            />
+          </div>
+          <div className="notice" style={{ marginTop: 12 }}>
+            启用模板数：{data?.promptTemplates.active ?? "--"}
           </div>
         </div>
         <div className="card">

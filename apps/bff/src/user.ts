@@ -1,109 +1,94 @@
 import { supabase } from "./db"
-import type { UserPlan } from "@formpilot/shared"
+import { FREE_SIGNUP_CREDITS, addCredits } from "./usage"
 
 export interface UserRecord {
   id: string
   email: string | null
-  plan: UserPlan
-  stripeCustomerId: string | null
-  stripeSubscriptionId: string | null
-  currentPeriodEnd: string | null
+  credits: number
+  role: string | null
+  createdAt: string | null
+}
+
+function mapUserRow(row: {
+  id: string
+  email: string | null
+  credits: number | null
+  role?: string | null
+  created_at?: string | null
+}): UserRecord {
+  return {
+    id: row.id,
+    email: row.email,
+    credits: Number(row.credits || 0),
+    role: row.role || "user",
+    createdAt: row.created_at || null
+  }
 }
 
 export async function getOrCreateUserRecord(userId: string, email: string | null): Promise<UserRecord> {
   const { data, error } = await supabase
     .from("users")
-    .select("id,email,plan,stripe_customer_id,stripe_subscription_id,current_period_end")
+    .select("id,email,credits,role,created_at")
     .eq("id", userId)
     .maybeSingle()
 
   if (error) throw error
-
-  if (data) {
-    return {
-      id: data.id,
-      email: data.email,
-      plan: (data.plan as UserPlan) || "free",
-      stripeCustomerId: data.stripe_customer_id,
-      stripeSubscriptionId: data.stripe_subscription_id,
-      currentPeriodEnd: data.current_period_end
-    }
-  }
+  if (data) return mapUserRow(data)
 
   const { data: inserted, error: insertError } = await supabase
     .from("users")
     .insert({
       id: userId,
       email,
-      plan: "free"
+      credits: 0
     })
-    .select("id,email,plan,stripe_customer_id,stripe_subscription_id,current_period_end")
+    .select("id,email,credits,role,created_at")
     .single()
 
   if (insertError || !inserted) throw insertError
-
-  return {
-    id: inserted.id,
-    email: inserted.email,
-    plan: (inserted.plan as UserPlan) || "free",
-    stripeCustomerId: inserted.stripe_customer_id,
-    stripeSubscriptionId: inserted.stripe_subscription_id,
-    currentPeriodEnd: inserted.current_period_end
-  }
+  return mapUserRow(inserted)
 }
 
-export async function updateUserPlan(userId: string, plan: UserPlan, stripeData?: {
-  stripeCustomerId?: string | null
-  stripeSubscriptionId?: string | null
-  currentPeriodEnd?: string | null
-}): Promise<void> {
-  const payload: Record<string, unknown> = {
-    plan,
-    stripe_customer_id: stripeData?.stripeCustomerId || null,
-    stripe_subscription_id: stripeData?.stripeSubscriptionId || null,
-    current_period_end: stripeData?.currentPeriodEnd || null
+export async function ensureDeviceCreditGrant(params: {
+  userId: string
+  deviceId?: string | null
+}): Promise<{ granted: boolean; credits: number; status: "granted" | "already_claimed" | "missing_device" }> {
+  const deviceId = (params.deviceId || "").trim()
+  if (!deviceId) {
+    const user = await getOrCreateUserRecord(params.userId, null)
+    return { granted: false, credits: user.credits, status: "missing_device" }
   }
 
-  const { error } = await supabase.from("users").update(payload).eq("id", userId)
-  if (error) throw error
-}
-
-export async function findUserByStripeCustomerId(stripeCustomerId: string): Promise<UserRecord | null> {
-  if (!stripeCustomerId) return null
   const { data, error } = await supabase
-    .from("users")
-    .select("id,email,plan,stripe_customer_id,stripe_subscription_id,current_period_end")
-    .eq("stripe_customer_id", stripeCustomerId)
+    .from("device_credit_claims")
+    .insert({
+      device_id: deviceId,
+      first_user_id: params.userId,
+      claimed_credits: FREE_SIGNUP_CREDITS
+    })
+    .select("device_id")
     .maybeSingle()
 
+  if (error && error.code !== "23505") {
+    throw error
+  }
+
+  if (!data) {
+    const user = await getOrCreateUserRecord(params.userId, null)
+    return { granted: false, credits: user.credits, status: "already_claimed" }
+  }
+
+  const credits = await addCredits(params.userId, FREE_SIGNUP_CREDITS)
+  return { granted: true, credits, status: "granted" }
+}
+
+export async function getUserById(userId: string): Promise<UserRecord | null> {
+  const { data, error } = await supabase
+    .from("users")
+    .select("id,email,credits,role,created_at")
+    .eq("id", userId)
+    .maybeSingle()
   if (error) throw error
   if (!data) return null
-
-  return {
-    id: data.id,
-    email: data.email,
-    plan: (data.plan as UserPlan) || "free",
-    stripeCustomerId: data.stripe_customer_id,
-    stripeSubscriptionId: data.stripe_subscription_id,
-    currentPeriodEnd: data.current_period_end
-  }
-}
-
-function isInviteTrialExpired(user: UserRecord, now: Date): boolean {
-  if (user.plan !== "pro") return false
-  if (user.stripeSubscriptionId) return false
-  if (!user.currentPeriodEnd) return false
-  const end = new Date(user.currentPeriodEnd)
-  if (Number.isNaN(end.getTime())) return false
-  return end.getTime() <= now.getTime()
-}
-
-export async function ensureActivePlan(user: UserRecord, now: Date = new Date()): Promise<UserRecord> {
-  if (!isInviteTrialExpired(user, now)) return user
-  const { error } = await supabase
-    .from("users")
-    .update({ plan: "free", current_period_end: null })
-    .eq("id", user.id)
-  if (error) throw error
-  return { ...user, plan: "free", currentPeriodEnd: null }
+  return mapUserRow(data)
 }

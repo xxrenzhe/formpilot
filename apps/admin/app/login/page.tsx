@@ -4,6 +4,17 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { getSupabaseClient } from "../lib/supabase"
 
+const ADMIN_USERNAME = "formpilot"
+const ADMIN_EMAIL_ALIAS = "formpilot@formpilot.local"
+
+function normalizeLoginIdentifier(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return ""
+  if (trimmed.includes("@")) return trimmed
+  if (trimmed.toLowerCase() === ADMIN_USERNAME) return ADMIN_EMAIL_ALIAS
+  return trimmed
+}
+
 export default function LoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState("")
@@ -21,7 +32,7 @@ export default function LoginPage() {
         <div className="form-row">
           <input
             className="input"
-            placeholder="邮箱"
+            placeholder="邮箱或用户名（formpilot）"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
@@ -41,7 +52,8 @@ export default function LoginPage() {
               setLoading(true)
               try {
                 const supabase = getSupabaseClient()
-                const { error } = await supabase.auth.signInWithPassword({ email, password })
+                const loginEmail = normalizeLoginIdentifier(email)
+                const { error } = await supabase.auth.signInWithPassword({ email: loginEmail, password })
                 if (error) throw error
                 router.replace("/analytics")
               } catch (error) {

@@ -1,4 +1,7 @@
-# FormPilot V2.0 验收清单
+# FormPilot V2.0 验收清单（历史归档）
+
+> ⚠️ 历史归档说明（2026-03-02）：本清单针对旧版 `Free/Pro + Stripe` 流程，已不适用于当前版本。  
+> 当前验收请使用 `infra/qa/ADS_SCENARIO_ACCEPTANCE_CHECKLIST.md`。
 
 > 目的：覆盖 PRD + 全景策略的关键路径，确保 100% 落地。
 

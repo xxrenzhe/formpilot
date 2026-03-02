@@ -25,7 +25,7 @@ export async function listAdminUsersHandler(c: Context): Promise<Response> {
 
   let builder = supabase
     .from("users")
-    .select("id,email,plan,current_period_end,created_at,role", { count: "exact" })
+    .select("id,email,credits,created_at,role", { count: "exact" })
 
   if (query) {
     builder = builder.or(`email.ilike.%${query}%,id.ilike.%${query}%`)
@@ -52,8 +52,7 @@ export async function listAdminUsersHandler(c: Context): Promise<Response> {
   const users = (data || []).map((row) => ({
     id: row.id,
     email: row.email,
-    plan: row.plan,
-    currentPeriodEnd: row.current_period_end,
+    credits: Number(row.credits || 0),
     createdAt: row.created_at,
     role: row.role,
     lastUsage: lastUsageMap.get(row.id) || null
@@ -74,7 +73,7 @@ export async function getAdminUserHandler(c: Context): Promise<Response> {
   const userId = c.req.param("id")
   const { data, error } = await supabase
     .from("users")
-    .select("id,email,plan,current_period_end,created_at,role")
+    .select("id,email,credits,created_at,role")
     .eq("id", userId)
     .maybeSingle()
 
@@ -94,8 +93,7 @@ export async function getAdminUserHandler(c: Context): Promise<Response> {
     user: {
       id: data.id,
       email: data.email,
-      plan: data.plan,
-      currentPeriodEnd: data.current_period_end,
+      credits: Number(data.credits || 0),
       createdAt: data.created_at,
       role: data.role,
       lastUsage: usageRows?.[0]?.timestamp || null

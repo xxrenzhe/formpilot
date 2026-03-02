@@ -99,6 +99,11 @@ a {
   margin-top: 16px;
 }
 
+.active-card {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(43, 111, 98, 0.15);
+}
+
 .grid {
   display: grid;
   gap: 16px;

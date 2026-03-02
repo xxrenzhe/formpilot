@@ -34,7 +34,28 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
+          SCHEMA_CHANGED=false
+          MIGRATIONS_CHANGED=false
+
           if echo "$CHANGED_FILES" | grep -q '^infra/supabase/schema.sql$'; then
+            SCHEMA_CHANGED=true
+          fi
+
+          if echo "$CHANGED_FILES" | grep -q '^infra/supabase/migrations/.*\.sql$'; then
+            MIGRATIONS_CHANGED=true
+          fi
+
+          if [ "$SCHEMA_CHANGED" = true ] && [ "$MIGRATIONS_CHANGED" = false ]; then
+            echo "infra/supabase/schema.sql changed without updating infra/supabase/migrations/*.sql"
+            exit 1
+          fi
+
+          if [ "$MIGRATIONS_CHANGED" = true ] && [ "$SCHEMA_CHANGED" = false ]; then
+            echo "infra/supabase/migrations/*.sql changed without updating infra/supabase/schema.sql"
+            exit 1
+          fi
+
+          if [ "$SCHEMA_CHANGED" = true ]; then
             if ! echo "$CHANGED_FILES" | grep -q '^packages/shared/src/types.ts$'; then
               echo "infra/supabase/schema.sql changed without updating packages/shared/src/types.ts"
               exit 1

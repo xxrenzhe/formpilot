@@ -8,8 +8,9 @@ import { requireAdmin } from "../admin"
 import { recordAdminAudit } from "../audit"
 
 const generateSchema = z.object({
-  count: z.number().int().min(1).max(1000),
-  batchId: z.string().optional()
+  count: z.number().int().min(1).max(5000),
+  credits: z.number().int().min(1).max(5000),
+  batchNote: z.string().min(1).max(200)
 })
 
 export async function generateInvitesHandler(c: Context): Promise<Response> {
@@ -31,7 +32,8 @@ export async function generateInvitesHandler(c: Context): Promise<Response> {
   const codes = generateInviteCodes(payload.data.count)
   const rows = codes.map((code) => ({
     code,
-    batch_id: payload.data.batchId || null
+    credits: payload.data.credits,
+    batch_note: payload.data.batchNote
   }))
 
   const { error } = await supabase.from("invite_codes").insert(rows)
@@ -40,12 +42,17 @@ export async function generateInvitesHandler(c: Context): Promise<Response> {
   await recordAdminAudit({
     adminId,
     actionType: "invite_generate",
-    metadata: { count: codes.length, batchId: payload.data.batchId || null }
+    metadata: {
+      count: codes.length,
+      credits: payload.data.credits,
+      batchNote: payload.data.batchNote
+    }
   })
 
   return c.json({
-    batchId: payload.data.batchId || null,
     count: codes.length,
+    credits: payload.data.credits,
+    batchNote: payload.data.batchNote,
     codes: codes.map(formatInviteCode),
     rawCodes: codes
   })

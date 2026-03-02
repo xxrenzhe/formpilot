@@ -66,11 +66,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
     <div className="page-shell">
       <aside className="sidebar">
-        <h1>FormPilot Admin</h1>
-        <NavLink href="/analytics" label="概览" />
+        <h1>FormPilot Mint</h1>
+        <NavLink href="/analytics" label="过审漏斗" />
+        <NavLink href="/invites" label="制码对账" />
+        <NavLink href="/prompts" label="Prompt 炼丹炉" />
         <NavLink href="/users" label="用户" />
-        <NavLink href="/plans" label="套餐" />
-        <NavLink href="/invites" label="邀请码" />
         <NavLink href="/system" label="系统" />
         <div style={{ marginTop: 24, fontSize: 12, color: "var(--muted)" }}>{user?.email}</div>
         <button

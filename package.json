@@ -11,6 +11,10 @@
     "dev:bff": "npm --workspace apps/bff run dev",
     "build": "npm -ws run build",
     "build:admin": "npm --workspace apps/admin run build",
-    "lint": "npm -ws run lint"
+    "lint": "npm -ws run lint",
+    "prepare": "bash infra/scripts/setup-git-hooks.sh",
+    "guard:env:staged": "bash infra/scripts/guard-env-files.sh staged",
+    "guard:env:tracked": "bash infra/scripts/guard-env-files.sh tracked",
+    "qa:recharge-flow": "bash infra/scripts/qa-recharge-regenerate.sh"
   }
 }

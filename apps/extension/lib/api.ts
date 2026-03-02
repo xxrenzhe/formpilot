@@ -1,24 +1,26 @@
-import type { GenerateRequest, UsageSummary, UserPersona, UserPlan } from "@formpilot/shared"
-import type { MetricEventPayload } from "@formpilot/shared"
-import { getAppConfig, getAuthState, setPlan } from "./storage"
+import type {
+  ComplianceProfile,
+  GenerateRequest,
+  GenerateErrorResponse,
+  MetricEventPayload,
+  UsageSummary
+} from "@formpilot/shared"
+import { getAppConfig, getDeviceId } from "./storage"
 import { refreshSessionIfNeeded } from "./supabase"
 
-export interface MetricsDailyRow {
-  day: string
-  panel_users: number
-  generate_users: number
-  copy_users: number
-  paywall_users: number
+export interface GenerateMeta {
+  scenario?: string
+  creditsCost?: number
+  costTier?: string
+  templateId?: string | null
+  missingFields?: string[]
 }
 
-export interface MetricsFunnelSummary {
-  generateUsers: number
-  copyUsers: number
-  paywallUsers: number
-  ahaRate: number
-  paywallRate: number
-  dau: number
-  mau: number
+interface ProxyResponse {
+  ok: boolean
+  status: number
+  statusText: string
+  body: string
 }
 
 async function getAuthHeader(): Promise<string | null> {
@@ -27,290 +29,330 @@ async function getAuthHeader(): Promise<string | null> {
   return `Bearer ${token}`
 }
 
-export async function fetchUsage(): Promise<UsageSummary | null> {
-  const config = await getAppConfig()
+function proxyFetch(input: {
+  url: string
+  method?: string
+  headers?: Record<string, string>
+  body?: string
+}): Promise<ProxyResponse> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      {
+        action: "proxyFetch",
+        request: {
+          url: input.url,
+          method: input.method || "GET",
+          headers: input.headers || {},
+          body: input.body
+        }
+      },
+      (response: ProxyResponse) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message))
+          return
+        }
+        resolve(response)
+      }
+    )
+  })
+}
+
+async function buildHeaders(contentType = false): Promise<Record<string, string> | null> {
   const authHeader = await getAuthHeader()
   if (!authHeader) return null
-
-  const response = await fetch(`${config.apiBaseUrl}/api/usage`, {
-    headers: {
-      Authorization: authHeader
-    }
-  })
-  if (!response.ok) {
-    return null
+  const deviceId = await getDeviceId()
+  const headers: Record<string, string> = {
+    Authorization: authHeader,
+    "x-device-id": deviceId
   }
-  const data = (await response.json()) as UsageSummary
-  await setPlan(data.plan)
+  if (contentType) {
+    headers["Content-Type"] = "application/json"
+  }
+  return headers
+}
+
+export async function fetchUsage(): Promise<UsageSummary | null> {
+  const config = await getAppConfig()
+  const headers = await buildHeaders()
+  if (!headers) return null
+
+  const response = await proxyFetch({
+    url: `${config.apiBaseUrl}/api/usage`,
+    headers
+  })
+  if (!response.ok) return null
+
+  const data = JSON.parse(response.body) as UsageSummary
   return data
 }
 
-export async function fetchPersonas(): Promise<UserPersona[]> {
+export async function fetchComplianceProfile(): Promise<ComplianceProfile | null> {
   const config = await getAppConfig()
-  const authHeader = await getAuthHeader()
-  if (!authHeader) return []
+  const headers = await buildHeaders()
+  if (!headers) return null
 
-  const response = await fetch(`${config.apiBaseUrl}/api/personas`, {
-    headers: {
-      Authorization: authHeader
-    }
+  const response = await proxyFetch({
+    url: `${config.apiBaseUrl}/api/compliance-profile`,
+    headers
   })
-  if (!response.ok) {
-    return []
-  }
-  const data = (await response.json()) as { personas: UserPersona[] }
-  return data.personas
-}
-
-export async function createPersona(persona: Omit<UserPersona, "id">): Promise<UserPersona | null> {
-  const config = await getAppConfig()
-  const authHeader = await getAuthHeader()
-  if (!authHeader) return null
-
-  const response = await fetch(`${config.apiBaseUrl}/api/personas`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: authHeader
-    },
-    body: JSON.stringify(persona)
-  })
-
-  if (!response.ok) {
-    const text = await response.text()
-    try {
-      const data = JSON.parse(text) as { message?: string }
-      throw new Error(data.message || "保存失败")
-    } catch {
-      throw new Error(text || "保存失败")
-    }
-  }
-
-  const data = (await response.json()) as { persona: UserPersona }
-  return data.persona
-}
-
-export async function updatePersona(id: string, persona: Omit<UserPersona, "id">): Promise<UserPersona | null> {
-  const config = await getAppConfig()
-  const authHeader = await getAuthHeader()
-  if (!authHeader) return null
-
-  const response = await fetch(`${config.apiBaseUrl}/api/personas/${id}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: authHeader
-    },
-    body: JSON.stringify(persona)
-  })
-
-  if (!response.ok) {
-    const text = await response.text()
-    try {
-      const data = JSON.parse(text) as { message?: string }
-      throw new Error(data.message || "保存失败")
-    } catch {
-      throw new Error(text || "保存失败")
-    }
-  }
-
-  const data = (await response.json()) as { persona: UserPersona }
-  return data.persona
-}
-
-export async function deletePersona(id: string): Promise<boolean> {
-  const config = await getAppConfig()
-  const authHeader = await getAuthHeader()
-  if (!authHeader) return false
-
-  const response = await fetch(`${config.apiBaseUrl}/api/personas/${id}`, {
-    method: "DELETE",
-    headers: {
-      Authorization: authHeader
-    }
-  })
-
-  return response.ok
-}
-
-export async function openCheckout(price: "pro-month" | "pro-year"): Promise<string | null> {
-  const config = await getAppConfig()
-  const authHeader = await getAuthHeader()
-  if (!authHeader) return null
-
-  const response = await fetch(`${config.apiBaseUrl}/api/checkout`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: authHeader
-    },
-    body: JSON.stringify({ price })
-  })
-
   if (!response.ok) return null
-  const data = (await response.json()) as { url: string }
-  return data.url
+  const data = JSON.parse(response.body) as { profile: ComplianceProfile }
+  return data.profile
 }
 
-export async function redeemInvite(code: string): Promise<{ plan: UserPlan; trialEndsAt: string }> {
+export async function upsertComplianceProfile(profile: ComplianceProfile): Promise<ComplianceProfile> {
   const config = await getAppConfig()
-  const authHeader = await getAuthHeader()
-  if (!authHeader) {
-    throw new Error("未登录")
-  }
+  const headers = await buildHeaders(true)
+  if (!headers) throw new Error("未登录")
 
-  const response = await fetch(`${config.apiBaseUrl}/api/invites/redeem`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: authHeader
-    },
-    body: JSON.stringify({ code })
+  const response = await proxyFetch({
+    url: `${config.apiBaseUrl}/api/compliance-profile`,
+    method: "PUT",
+    headers,
+    body: JSON.stringify(profile)
   })
 
   if (!response.ok) {
-    const text = await response.text()
     try {
-      const data = JSON.parse(text) as { message?: string }
-      throw new Error(data.message || "兑换失败")
+      const data = JSON.parse(response.body) as { message?: string }
+      throw new Error(data.message || "保存失败")
     } catch {
-      throw new Error(text || "兑换失败")
+      throw new Error(response.body || "保存失败")
     }
   }
 
-  return (await response.json()) as { plan: UserPlan; trialEndsAt: string }
+  return (JSON.parse(response.body) as { profile: ComplianceProfile }).profile
+}
+
+function parseErrorResponse(body: string): GenerateErrorResponse {
+  try {
+    return JSON.parse(body) as GenerateErrorResponse
+  } catch {
+    return {
+      errorCode: "FORBIDDEN",
+      message: body || "生成失败"
+    }
+  }
 }
 
 export async function generateContent(
   payload: GenerateRequest,
   options: {
     onToken: (token: string) => void
-    onError: (message: string, upgradeUrl?: string) => void
-    onMeta?: (meta: { contextTotal?: number; contextOmitted?: number }) => void
-    byokKey?: string
+    onError: (message: string, details?: GenerateErrorResponse) => void
+    onMeta?: (meta: GenerateMeta) => void
   }
 ): Promise<void> {
   const config = await getAppConfig()
-  const authHeader = await getAuthHeader()
-  if (!authHeader) {
+  const headers = await buildHeaders(true)
+  if (!headers) {
     options.onError("未登录")
     return
   }
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Authorization: authHeader
-  }
-  if (options.byokKey) {
-    headers["x-byok-key"] = options.byokKey
-  }
-
-  const response = await fetch(`${config.apiBaseUrl}/api/generate`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload)
-  })
-
-  if (!response.ok || !response.body) {
-    const text = await response.text()
-    try {
-      const data = JSON.parse(text) as { message?: string; upgradeUrl?: string }
-      options.onError(data.message || "生成失败", data.upgradeUrl)
-    } catch {
-      options.onError(text || "生成失败")
-    }
-    return
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
+  const requestId = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+  const port = chrome.runtime.connect({ name: "proxy-stream" })
   let buffer = ""
-  let currentEvent: string = "message"
+  let currentEvent = "message"
+  let closed = false
 
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
+  let onMessageRef: ((message: {
+    requestId?: string
+    type?: "response" | "error-response" | "chunk" | "done" | "stream-error"
+    status?: number
+    body?: string
+    chunk?: string
+    message?: string
+  }) => void) | null = null
 
+  const cleanup = () => {
+    if (closed) return
+    closed = true
+    try {
+      port.postMessage({
+        action: "cancelStream",
+        requestId
+      })
+    } catch {
+      // ignore cancel errors
+    }
+    if (onMessageRef) {
+      port.onMessage.removeListener(onMessageRef)
+      onMessageRef = null
+    }
+    try {
+      port.disconnect()
+    } catch {
+      // ignore disconnect errors
+    }
+  }
+
+  const processLine = (rawLine: string): boolean => {
+    const line = rawLine.trim()
+    if (!line) {
+      currentEvent = "message"
+      return false
+    }
+    if (line.startsWith("event:")) {
+      currentEvent = line.replace(/^event:\s*/, "")
+      return false
+    }
+    if (!line.startsWith("data:")) return false
+
+    const data = line.replace(/^data:\s*/, "")
+    if (data === "[DONE]") {
+      return true
+    }
+    if (currentEvent === "error") {
+      options.onError(data || "生成失败")
+      return true
+    }
+    if (currentEvent === "meta") {
+      try {
+        const meta = JSON.parse(data) as GenerateMeta
+        options.onMeta?.(meta)
+      } catch {
+        // ignore malformed meta
+      }
+      currentEvent = "message"
+      return false
+    }
+
+    options.onToken(data)
+    return false
+  }
+
+  const processBuffer = (flush = false): boolean => {
     let index = buffer.indexOf("\n")
     while (index !== -1) {
       const line = buffer.slice(0, index)
       buffer = buffer.slice(index + 1)
-
-      const trimmed = line.trim()
-      if (!trimmed) {
-        currentEvent = "message"
-        index = buffer.indexOf("\n")
-        continue
-      }
-
-      if (trimmed.startsWith("event:")) {
-        currentEvent = trimmed.replace(/^event:\s*/, "")
-      } else if (trimmed.startsWith("data:")) {
-        const data = trimmed.replace(/^data:\s*/, "")
-        if (data === "[DONE]") return
-        if (currentEvent === "error") {
-          options.onError(data || "生成失败")
-          return
-        }
-        if (currentEvent === "meta") {
-          try {
-            const parsed = JSON.parse(data) as { contextTotal?: number; contextOmitted?: number }
-            options.onMeta?.(parsed)
-          } catch {
-            // ignore
-          }
-          currentEvent = "message"
-          index = buffer.indexOf("\n")
-          continue
-        }
-        options.onToken(data)
-      }
+      if (processLine(line)) return true
       index = buffer.indexOf("\n")
     }
+
+    if (flush && buffer) {
+      const shouldStop = processLine(buffer)
+      buffer = ""
+      return shouldStop
+    }
+
+    return false
   }
+
+  await new Promise<void>((resolve) => {
+    const onMessage = (message: {
+      requestId?: string
+      type?: "response" | "error-response" | "chunk" | "done" | "stream-error"
+      status?: number
+      body?: string
+      chunk?: string
+      message?: string
+    }) => {
+      if (message.requestId !== requestId) return
+
+      if (message.type === "error-response") {
+        const parsed = parseErrorResponse(message.body || "")
+        options.onError(parsed.message || "生成失败", parsed)
+        cleanup()
+        resolve()
+        return
+      }
+
+      if (message.type === "stream-error") {
+        options.onError(message.message || "生成失败")
+        cleanup()
+        resolve()
+        return
+      }
+
+      if (message.type === "chunk") {
+        buffer += message.chunk || ""
+        const shouldStop = processBuffer(false)
+        if (shouldStop) {
+          cleanup()
+          resolve()
+        }
+        return
+      }
+
+      if (message.type === "done") {
+        processBuffer(true)
+        cleanup()
+        resolve()
+      }
+    }
+
+    onMessageRef = onMessage
+    port.onMessage.addListener(onMessage)
+    port.postMessage({
+      action: "startStream",
+      requestId,
+      request: {
+        url: `${config.apiBaseUrl}/api/generate`,
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload)
+      }
+    })
+  })
 }
 
 export async function sendMetric(payload: MetricEventPayload): Promise<void> {
   const config = await getAppConfig()
-  const authHeader = await getAuthHeader()
-  if (!authHeader) return
+  const headers = await buildHeaders(true)
+  if (!headers) return
 
-  await fetch(`${config.apiBaseUrl}/api/metrics`, {
+  await proxyFetch({
+    url: `${config.apiBaseUrl}/api/metrics`,
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: authHeader
-    },
+    headers,
     body: JSON.stringify(payload)
   })
 }
 
-export async function fetchMetricsDaily(): Promise<MetricsDailyRow[]> {
+export async function sendPromptFeedback(payload: {
+  templateId: string
+  scenario: "general" | "ads_compliance"
+  outcome: "success" | "fail"
+}): Promise<void> {
   const config = await getAppConfig()
-  const authHeader = await getAuthHeader()
-  if (!authHeader) return []
+  const headers = await buildHeaders(true)
+  if (!headers) throw new Error("未登录")
 
-  const response = await fetch(`${config.apiBaseUrl}/api/metrics/daily`, {
-    headers: {
-      Authorization: authHeader
-    }
+  const response = await proxyFetch({
+    url: `${config.apiBaseUrl}/api/prompt-feedback`,
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload)
   })
-  if (!response.ok) return []
-  const data = (await response.json()) as { rows: MetricsDailyRow[] }
-  return data.rows || []
+  if (!response.ok) {
+    throw new Error("反馈提交失败")
+  }
 }
 
-export async function fetchMetricsFunnel(): Promise<MetricsFunnelSummary | null> {
+export async function redeemInvite(code: string): Promise<{ creditsAdded: number; credits: number }> {
   const config = await getAppConfig()
-  const authHeader = await getAuthHeader()
-  if (!authHeader) return null
+  const headers = await buildHeaders(true)
+  if (!headers) {
+    throw new Error("未登录")
+  }
 
-  const response = await fetch(`${config.apiBaseUrl}/api/metrics/funnel`, {
-    headers: {
-      Authorization: authHeader
-    }
+  const response = await proxyFetch({
+    url: `${config.apiBaseUrl}/api/invites/redeem`,
+    method: "POST",
+    headers,
+    body: JSON.stringify({ code })
   })
-  if (!response.ok) return null
-  return (await response.json()) as MetricsFunnelSummary
+
+  if (!response.ok) {
+    try {
+      const data = JSON.parse(response.body) as { message?: string }
+      throw new Error(data.message || "兑换失败")
+    } catch {
+      throw new Error(response.body || "兑换失败")
+    }
+  }
+
+  return JSON.parse(response.body) as { creditsAdded: number; credits: number }
 }

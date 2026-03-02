@@ -16,8 +16,7 @@ function toAuthState(session: Session) {
     accessToken: session.access_token,
     refreshToken: session.refresh_token,
     expiresAt: session.expires_at || 0,
-    email: session.user.email || "",
-    plan: "unknown" as const
+    email: session.user.email || ""
   }
 }
 
@@ -76,8 +75,7 @@ export async function consumeOAuthRedirect(): Promise<boolean> {
     accessToken,
     refreshToken: refreshToken || "",
     expiresAt,
-    email,
-    plan: "unknown"
+    email
   })
 
   const cleanUrl = window.location.origin + window.location.pathname
@@ -100,7 +98,7 @@ export async function refreshSessionIfNeeded(): Promise<string | null> {
     return null
   }
   const next = toAuthState(data.session)
-  await setAuthState({ ...next, plan: auth.plan })
+  await setAuthState(next)
   return next.accessToken
 }
 

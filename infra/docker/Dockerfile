@@ -50,6 +50,7 @@ COPY --from=builder /app/apps/bff/dist /app/apps/bff/dist
 COPY --from=builder /app/apps/admin/.next /app/apps/admin/.next
 COPY --from=builder /app/apps/admin/public /app/apps/admin/public
 COPY --from=builder /app/apps/admin/next.config.js /app/apps/admin/next.config.js
+COPY infra/supabase/migrations /app/infra/supabase/migrations
 
 COPY infra/supervisord/supervisord.conf /etc/supervisord.conf
 COPY infra/nginx/nginx.conf /etc/nginx/nginx.conf

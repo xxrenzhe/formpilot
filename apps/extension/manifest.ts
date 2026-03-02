@@ -4,7 +4,7 @@ const manifest: PlasmoManifest = {
   manifest_version: 3,
   name: "FormPilot",
   version: "0.1.0",
-  description: "Fill Smart. Copy Fast.",
+  description: "Google Ads Compliance Appeal Co-Pilot",
   icons: {
     "16": "assets/icon.png",
     "32": "assets/icon.png",

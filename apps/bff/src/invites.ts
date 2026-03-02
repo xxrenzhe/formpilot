@@ -1,19 +1,9 @@
 import { randomBytes } from "crypto"
 
 const INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-const DEFAULT_INVITE_LENGTH = 10
+const RAW_INVITE_LENGTH = 16
 
-export function normalizeInviteCode(input: string): string {
-  return input.toUpperCase().replace(/[^A-Z0-9]/g, "")
-}
-
-export function formatInviteCode(input: string): string {
-  const normalized = normalizeInviteCode(input)
-  if (normalized.length <= 4) return normalized
-  return `${normalized.slice(0, 4)}-${normalized.slice(4)}`
-}
-
-function randomInviteCode(length: number): string {
+function randomRawCode(length: number): string {
   const bytes = randomBytes(length)
   let output = ""
   for (let i = 0; i < length; i += 1) {
@@ -22,10 +12,24 @@ function randomInviteCode(length: number): string {
   return output
 }
 
-export function generateInviteCodes(count: number, length: number = DEFAULT_INVITE_LENGTH): string[] {
+export function normalizeInviteCode(input: string): string {
+  const normalized = input.toUpperCase().replace(/[^A-Z0-9]/g, "")
+  if (normalized.startsWith("FPADS")) {
+    return normalized.slice(5)
+  }
+  return normalized
+}
+
+export function formatInviteCode(raw: string): string {
+  const normalized = normalizeInviteCode(raw)
+  const chunks = normalized.match(/.{1,4}/g) || [normalized]
+  return `FP-ADS-${chunks.join("-")}`
+}
+
+export function generateInviteCodes(count: number): string[] {
   const codes = new Set<string>()
   while (codes.size < count) {
-    codes.add(randomInviteCode(length))
+    codes.add(randomRawCode(RAW_INVITE_LENGTH))
   }
   return Array.from(codes)
 }

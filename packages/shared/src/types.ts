@@ -1,6 +1,6 @@
-export type UserPlan = "free" | "pro" | "unknown"
-
 export type GenerateMode = "shortText" | "longDoc"
+export type AppScenario = "general" | "ads_compliance"
+export type CreditCostTier = "short_text" | "long_doc" | "evidence_heavy"
 
 export interface PageContext {
   title: string
@@ -16,39 +16,60 @@ export interface FieldContext {
   surroundingText?: string
 }
 
-export interface UserPersona {
+export interface ComplianceProfile {
+  legalName: string
+  website: string
+  businessCategory: string
+  hasOwnFactory: boolean
+  fulfillmentModel: string
+  returnPolicyUrl: string
+  supportEmail: string
+  supportPhone: string
+  additionalEvidence?: string
+  updatedAt?: string
+}
+
+export interface PromptTemplate {
   id: string
+  scenario: AppScenario
   name: string
-  isDefault: boolean
-  coreIdentity: string
-  companyInfo: string
-  tonePreference: string
-  customRules?: string
+  templateBody: string
+  weight: number
+  active: boolean
+  updatedAt: string
 }
 
 export interface GenerateRequest {
   pageContext: PageContext
   fieldContext: FieldContext
-  personaId?: string
-  personaSnapshot?: UserPersona
+  scenario?: AppScenario
+  complianceSnapshot?: ComplianceProfile
   userHint?: string
   mode: GenerateMode
   useGlobalContext?: boolean
   globalContext?: string
-  previewOnly?: boolean
 }
 
 export interface GenerateErrorResponse {
-  errorCode: "UNAUTHORIZED" | "FORBIDDEN" | "USAGE_LIMIT" | "MISSING_CONFIG" | "INVALID_CODE"
+  errorCode:
+    | "UNAUTHORIZED"
+    | "FORBIDDEN"
+    | "USAGE_LIMIT"
+    | "MISSING_CONFIG"
+    | "INVALID_CODE"
+    | "INSUFFICIENT_CREDITS"
+    | "MISSING_COMPLIANCE_PROFILE"
   message: string
   upgradeUrl?: string
+  requiredCredits?: number
+  currentCredits?: number
 }
 
 export interface UsageSummary {
-  month: string
-  used: number
-  limit: number
-  plan: UserPlan
+  credits: number
+  lifetimeUsed: number
+  trialStatus?: "granted" | "already_claimed" | "missing_device"
+  trialHint?: string
 }
 
 export const METRIC_EVENT_TYPES = [
@@ -56,7 +77,14 @@ export const METRIC_EVENT_TYPES = [
   "generate_success",
   "copy_success",
   "paywall_shown",
-  "rewrite_click"
+  "rewrite_click",
+  "pii_override",
+  "longdoc_open",
+  "longdoc_generate_success",
+  "longdoc_copy_success",
+  "longdoc_download",
+  "appeal_feedback_success",
+  "appeal_feedback_fail"
 ] as const
 
 export type MetricEventType = (typeof METRIC_EVENT_TYPES)[number]

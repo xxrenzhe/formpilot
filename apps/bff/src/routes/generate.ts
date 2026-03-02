@@ -1,16 +1,22 @@
 import type { Context } from "hono"
 import { z } from "zod"
-import { buildSystemPrompt } from "@formpilot/shared"
+import {
+  buildSystemPrompt,
+  buildUserPrompt,
+  findComplianceMissingFields,
+  isLikelyAdsScenario,
+  type AppScenario
+} from "@formpilot/shared"
+import { streamSSE } from "hono/streaming"
 import { getAuthUser } from "../auth"
 import { jsonError } from "../response"
-import { ensureActivePlan, getOrCreateUserRecord } from "../user"
-import { FREE_MONTHLY_LIMIT, PRO_DAILY_LIMIT, getDailyUsageCount, getMonthlyUsageCount, recordUsage } from "../usage"
-import { getPersona } from "../personas"
+import { ensureDeviceCreditGrant, getOrCreateUserRecord } from "../user"
+import { resolveCreditCost, hasEnoughCredits, recordUsage, tryDeductCredits, addCredits } from "../usage"
 import { streamGenerate } from "../ai"
 import { env } from "../config"
-import { streamSSE } from "hono/streaming"
-import type { UserPersona } from "@formpilot/shared"
 import { summarizeContext } from "../context"
+import { getComplianceProfile } from "../compliance"
+import { getWeightedPromptTemplate } from "../promptTemplates"
 
 const pageContextSchema = z.object({
   title: z.string(),
@@ -29,33 +35,42 @@ const fieldContextSchema = z.object({
 const generateSchema = z.object({
   pageContext: pageContextSchema,
   fieldContext: fieldContextSchema,
-  personaId: z.string().optional(),
-  personaSnapshot: z
+  scenario: z.enum(["general", "ads_compliance"]).optional(),
+  complianceSnapshot: z
     .object({
-      id: z.string(),
-      name: z.string(),
-      isDefault: z.boolean(),
-      coreIdentity: z.string(),
-      companyInfo: z.string(),
-      tonePreference: z.string(),
-      customRules: z.string().optional()
+      legalName: z.string(),
+      website: z.string(),
+      businessCategory: z.string(),
+      hasOwnFactory: z.boolean(),
+      fulfillmentModel: z.string(),
+      returnPolicyUrl: z.string(),
+      supportEmail: z.string(),
+      supportPhone: z.string(),
+      additionalEvidence: z.string().optional()
     })
     .optional(),
   userHint: z.string().optional(),
   mode: z.enum(["shortText", "longDoc"]),
   useGlobalContext: z.boolean().optional(),
-  globalContext: z.string().optional(),
-  previewOnly: z.boolean().optional()
+  globalContext: z.string().optional()
 })
 
-function buildUserPrompt(mode: "shortText" | "longDoc", previewOnly: boolean): string {
-  if (mode === "longDoc") {
-    if (previewOnly) {
-      return "请仅输出文档大纲与要点，控制在 100 字以内。"
-    }
-    return "请生成完整的文档正文，包含清晰的标题层级与专业结构。"
+function resolveScenario(payload: z.infer<typeof generateSchema>): AppScenario {
+  if (payload.scenario) return payload.scenario
+  if (
+    isLikelyAdsScenario({
+      url: payload.pageContext.url,
+      title: payload.pageContext.title,
+      description: payload.pageContext.description
+    })
+  ) {
+    return "ads_compliance"
   }
-  return "请生成简洁、专业、与问题匹配的回复。"
+  return "general"
+}
+
+function resolveUpgradeMessage(required: number, balance: number): string {
+  return `点数不足：本次生成需 ${required} 点，当前仅剩 ${balance} 点。请输入充值码后继续。`
 }
 
 export async function generateHandler(c: Context): Promise<Response> {
@@ -75,104 +90,103 @@ export async function generateHandler(c: Context): Promise<Response> {
     })
   }
 
-  const now = new Date()
-  const userRecord = await ensureActivePlan(await getOrCreateUserRecord(authUser.id, authUser.email), now)
-  const upgradeUrl = `${env.appBaseUrl}/pricing`
-  const isPreview = payload.data.previewOnly === true
+  let userRecord = await getOrCreateUserRecord(authUser.id, authUser.email)
+  const deviceId = c.req.header("x-device-id") || ""
+  await ensureDeviceCreditGrant({ userId: userRecord.id, deviceId })
+  userRecord = await getOrCreateUserRecord(authUser.id, authUser.email)
 
-  if (payload.data.mode === "longDoc" && userRecord.plan !== "pro" && !isPreview) {
-    return jsonError(c, 403, {
-      errorCode: "FORBIDDEN",
-      message: "长文档生成仅对 Pro 开放",
-      upgradeUrl
+  const scenario = resolveScenario(payload.data)
+  const profile =
+    payload.data.complianceSnapshot || (scenario === "ads_compliance" ? await getComplianceProfile(userRecord.id) : null)
+  const missingFields = scenario === "ads_compliance" ? findComplianceMissingFields(profile || undefined) : []
+  const cost = resolveCreditCost(payload.data)
+
+  if (!hasEnoughCredits(userRecord.credits, cost.cost)) {
+    return jsonError(c, 402, {
+      errorCode: "INSUFFICIENT_CREDITS",
+      message: resolveUpgradeMessage(cost.cost, userRecord.credits),
+      requiredCredits: cost.cost,
+      currentCredits: userRecord.credits,
+      upgradeUrl: `${env.appBaseUrl}/recharge`
     })
   }
 
-  if (userRecord.plan === "free") {
-    const used = await getMonthlyUsageCount(userRecord.id, now)
-    if (used >= FREE_MONTHLY_LIMIT) {
-      return jsonError(c, 403, {
-        errorCode: "USAGE_LIMIT",
-        message: "免费额度已用完",
-        upgradeUrl
-      })
-    }
-  } else {
-    const dailyUsed = await getDailyUsageCount(userRecord.id, now)
-    if (dailyUsed >= PRO_DAILY_LIMIT) {
-      return jsonError(c, 403, {
-        errorCode: "USAGE_LIMIT",
-        message: "今日请求已达上限，请稍后再试"
-      })
-    }
-  }
-
-  let persona: UserPersona | null = null
-  if (payload.data.personaSnapshot) {
-    persona = payload.data.personaSnapshot
-  } else if (payload.data.personaId) {
-    persona = await getPersona(userRecord.id, payload.data.personaId)
-  }
-
-  if (!persona) {
-    return jsonError(c, 400, {
-      errorCode: "FORBIDDEN",
-      message: "缺少人设信息"
+  const deducted = await tryDeductCredits(userRecord.id, cost.cost)
+  if (!deducted) {
+    return jsonError(c, 402, {
+      errorCode: "INSUFFICIENT_CREDITS",
+      message: resolveUpgradeMessage(cost.cost, userRecord.credits),
+      requiredCredits: cost.cost,
+      currentCredits: userRecord.credits
     })
   }
 
-  const globalContext = userRecord.plan === "pro" ? payload.data.globalContext : undefined
-  const contextLimit = Number(process.env.GLOBAL_CONTEXT_LIMIT || 6000)
-  const cleanedContext = globalContext ? summarizeContext(globalContext, contextLimit) : null
+  const allowGlobalContext = payload.data.useGlobalContext !== false
+  const contextLimit = Number(process.env.GLOBAL_CONTEXT_LIMIT || 8000)
+  const cleanedContext =
+    allowGlobalContext && payload.data.globalContext
+      ? summarizeContext(payload.data.globalContext, contextLimit).summary
+      : undefined
+
+  const selectedTemplate = await getWeightedPromptTemplate(scenario)
   const systemPrompt = buildSystemPrompt({
+    scenario,
     pageContext: payload.data.pageContext,
     fieldContext: payload.data.fieldContext,
-    persona,
+    complianceProfile: profile || undefined,
+    templateBody: selectedTemplate?.templateBody,
+    mode: payload.data.mode,
     userHint: payload.data.userHint || "",
-    globalContext: cleanedContext?.summary || globalContext
+    globalContext: cleanedContext
   })
+  const userPrompt = buildUserPrompt(payload.data.mode)
 
-  const userPrompt = buildUserPrompt(payload.data.mode, isPreview)
-  const byokKey = c.req.header("x-byok-key") || ""
-  const apiKeyOverride = userRecord.plan === "pro" && byokKey ? byokKey : undefined
   const modelOverride =
-    userRecord.plan === "pro"
-      ? env.aiModelPro || env.aiModel
-      : env.aiModelFree || env.aiModel
+    scenario === "ads_compliance" ? env.aiModelAds || env.aiModel : env.aiModelGeneral || env.aiModel
 
   return streamSSE(c, async (stream) => {
     try {
-      if (cleanedContext?.summary) {
-        await stream.writeSSE({
-          event: "meta",
-          data: JSON.stringify({
-            contextTotal: cleanedContext.total,
-            contextOmitted: cleanedContext.omitted
-          })
+      await stream.writeSSE({
+        event: "meta",
+        data: JSON.stringify({
+          scenario,
+          creditsCost: cost.cost,
+          costTier: cost.tier,
+          templateId: selectedTemplate?.id || null,
+          missingFields
         })
-      }
+      })
+
       await streamGenerate({
         systemPrompt,
         userPrompt,
         onToken: async (token) => {
           await stream.writeSSE({ data: token })
         },
-        apiKeyOverride,
         modelOverride
       })
+
       await recordUsage({
         userId: userRecord.id,
         requestType: "generate",
-        isFree: userRecord.plan === "free",
-        success: true
+        tier: cost.tier,
+        creditsCost: cost.cost,
+        success: true,
+        templateId: selectedTemplate?.id || null,
+        scenario
       })
     } catch (error) {
+      await addCredits(userRecord.id, cost.cost)
       await recordUsage({
         userId: userRecord.id,
         requestType: "generate",
-        isFree: userRecord.plan === "free",
-        success: false
+        tier: cost.tier,
+        creditsCost: cost.cost,
+        success: false,
+        templateId: selectedTemplate?.id || null,
+        scenario
       })
+
       await stream.writeSSE({
         event: "error",
         data: error instanceof Error ? error.message : "生成失败"

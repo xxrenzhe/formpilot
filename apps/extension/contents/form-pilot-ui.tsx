@@ -2,50 +2,36 @@ import "../style.css"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { PlasmoCSConfig } from "plasmo"
-import type { FieldContext, GenerateMode, MetricEventType, PageContext, UserPersona, UserPlan, UsageSummary } from "@formpilot/shared"
-import { isPiiField } from "@formpilot/shared"
+import type { ComplianceProfile, FieldContext, GenerateMode, MetricEventType } from "@formpilot/shared"
+import { isLikelyAdsScenario } from "@formpilot/shared"
 import { extractFieldContext, extractPageContext, detectLongDoc } from "./extractor"
 import { extractGlobalContext } from "./globalContext"
 import FormPilotPanel from "./form-pilot-panel"
 import { createStreamParser } from "../lib/streamParser"
-import { fetchPersonas, fetchUsage, generateContent, sendMetric } from "../lib/api"
-import { cachePersonas, getAppConfig, getAuthState, getCachedPersonas, setPlan } from "../lib/storage"
-import type { AuthState } from "../lib/storage"
+import { containsSensitiveValue, maskSensitiveText, restoreMaskedText } from "../lib/pii"
+import {
+  fetchComplianceProfile,
+  fetchUsage,
+  generateContent,
+  redeemInvite,
+  sendMetric,
+  sendPromptFeedback,
+  type GenerateMeta
+} from "../lib/api"
+import { getAuthState, type AuthState } from "../lib/storage"
 
 export const config: PlasmoCSConfig = {
   matches: ["<all_urls>"]
 }
 
-const PANEL_WIDTH = 380
-const PREVIEW_LIMIT = 100
-
-interface SlashContext {
-  pageContext: PageContext
-  fieldContext: FieldContext
-  persona: UserPersona
+export async function createShadowRoot(shadowHost: Element): Promise<ShadowRoot> {
+  return shadowHost.attachShadow({ mode: "closed" })
 }
 
-function resolveSlashCommands(input: string, context: SlashContext): string {
-  let output = input
-  const replacements: Record<string, string> = {
-    "/page_title": context.pageContext.title,
-    "/page_url": context.pageContext.url || "",
-    "/page_desc": context.pageContext.description,
-    "/page_lang": context.pageContext.lang,
-    "/field_label": context.fieldContext.label,
-    "/field_placeholder": context.fieldContext.placeholder,
-    "/persona_name": context.persona.name,
-    "/my_company": context.persona.companyInfo,
-    "/my_role": context.persona.coreIdentity
-  }
-
-  Object.entries(replacements).forEach(([key, value]) => {
-    if (!value) return
-    output = output.split(key).join(value)
-  })
-
-  return output
-}
+const PANEL_WIDTH = 390
+const PANEL_DEFAULT_TOP = 80
+const PANEL_DEFAULT_LEFT_PADDING = 24
+const PANEL_OPEN_BATCH_WINDOW_MS = 5000
 
 function isSupportedInput(target: HTMLElement): target is HTMLInputElement | HTMLTextAreaElement {
   const tag = target.tagName.toLowerCase()
@@ -57,190 +43,295 @@ function isSupportedInput(target: HTMLElement): target is HTMLInputElement | HTM
 
 function calcPosition(rect: DOMRect | null) {
   if (!rect) {
-    return { top: 80, left: window.innerWidth - PANEL_WIDTH - 24 }
+    return { top: PANEL_DEFAULT_TOP, left: window.innerWidth - PANEL_WIDTH - PANEL_DEFAULT_LEFT_PADDING }
   }
-  const top = Math.min(rect.bottom + 8, window.innerHeight - 420)
+  const top = Math.min(rect.bottom + 8, window.innerHeight - 430)
   const left = Math.min(rect.right - PANEL_WIDTH, window.innerWidth - PANEL_WIDTH - 16)
   return { top: Math.max(16, top), left: Math.max(16, left) }
+}
+
+function sniffScenario(): "general" | "ads_compliance" {
+  const context = extractPageContext()
+  return isLikelyAdsScenario({
+    url: context.url,
+    title: context.title,
+    description: context.description
+  })
+    ? "ads_compliance"
+    : "general"
+}
+
+function resolveCost(field: FieldContext | null, userHint: string, globalContextLength: number): number {
+  if (!field) return 1
+  const fieldSignal = `${field.label} ${field.placeholder} ${field.surroundingText || ""}`.toLowerCase()
+  if (
+    globalContextLength > 7000 ||
+    field.type.toLowerCase().includes("file") ||
+    fieldSignal.includes("upload") ||
+    fieldSignal.includes("attachment") ||
+    userHint.length > 2500
+  ) {
+    return 10
+  }
+  if (detectLongDoc(field)) {
+    return 5
+  }
+  return 1
+}
+
+function missingFieldWarnings(profile: ComplianceProfile | null): string[] {
+  if (!profile) {
+    return ["请先在控制台补充企业法定名称、官网、主营业务与退换货政策链接。"]
+  }
+
+  const mapping: Array<[boolean, string]> = [
+    [!profile.legalName.trim(), "缺少【公司法定名称】"],
+    [!profile.website.trim(), "缺少【官网】"],
+    [!profile.businessCategory.trim(), "缺少【主营业务】"],
+    [!profile.fulfillmentModel.trim(), "缺少【履约模式】"],
+    [!profile.returnPolicyUrl.trim(), "缺少【退换货政策链接】"],
+    [!profile.supportEmail.trim(), "缺少【客服邮箱】"],
+    [!profile.supportPhone.trim(), "缺少【客服电话】"]
+  ]
+  return mapping.filter(([missing]) => missing).map(([, label]) => label)
+}
+
+function teaserText(requiredCredits: number): string {
+  return `Dear Google Ads Review Team,\n\nWe operate a legitimate cross-border ecommerce business with transparent fulfillment and customer support procedures. We have completed internal policy checks and strengthened ad-account safeguards to ensure ongoing compliance.\n\n[后续完整方案已锁定，解锁需 ${requiredCredits} 点]`
 }
 
 export default function FormPilotUi() {
   const [activeField, setActiveField] = useState<FieldContext | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
-  const [translation, setTranslation] = useState("")
   const [reply, setReply] = useState("")
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState("")
-  const [upgradeUrl, setUpgradeUrl] = useState("")
-  const [personas, setPersonas] = useState<UserPersona[]>([])
-  const [selectedPersonaId, setSelectedPersonaId] = useState("")
   const [userHint, setUserHint] = useState("")
-  const [mode, setMode] = useState<GenerateMode>("shortText")
-  const [plan, setPlanState] = useState<UserPlan>("unknown")
-  const [usage, setUsage] = useState<UsageSummary | null>(null)
-  const [isPii, setIsPii] = useState(false)
-  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null)
-  const [isManualMode, setIsManualMode] = useState(false)
   const [authState, setAuthState] = useState<AuthState | null>(null)
   const [copied, setCopied] = useState(false)
-  const [contextMeta, setContextMeta] = useState<{ total: number; omitted: number } | null>(null)
+  const [usageCredits, setUsageCredits] = useState(0)
+  const [accountHint, setAccountHint] = useState("")
+  const [scenario, setScenario] = useState<"general" | "ads_compliance">("general")
+  const [complianceProfile, setComplianceProfile] = useState<ComplianceProfile | null>(null)
+  const [shouldBlurReply, setShouldBlurReply] = useState(false)
+  const [hasMaskedHint, setHasMaskedHint] = useState(false)
+  const [sensitiveInputDetected, setSensitiveInputDetected] = useState(false)
+  const [rechargeCode, setRechargeCode] = useState("")
+  const [rechargeStatus, setRechargeStatus] = useState("")
+  const [recharging, setRecharging] = useState(false)
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null)
+  const [lastMeta, setLastMeta] = useState<GenerateMeta | null>(null)
 
   const panelPosition = useMemo(() => calcPosition(anchorRect), [anchorRect])
-  const activeElementRef = useRef<HTMLElement | null>(null)
-  const copyTimerRef = useRef<number | null>(null)
   const panelRootRef = useRef<HTMLDivElement | null>(null)
+  const copyTimerRef = useRef<number | null>(null)
+  const teaserTimerRef = useRef<number | null>(null)
+  const maskedPairsRef = useRef<Array<[string, string]>>([])
+  const panelOpenBatchRef = useRef<{ count: number; sources: Set<string>; timer: number | null }>({
+    count: 0,
+    sources: new Set<string>(),
+    timer: null
+  })
 
-  const refreshAccount = useCallback(async () => {
-    const auth = await getAuthState()
-    setAuthState(auth)
-    if (!auth) return
+  const complianceWarnings = useMemo(() => {
+    if (scenario !== "ads_compliance") return []
+    const merged = [...(lastMeta?.missingFields || []), ...missingFieldWarnings(complianceProfile)]
+    return Array.from(new Set(merged.filter((item) => item && item.trim())))
+  }, [scenario, complianceProfile, lastMeta])
 
-    const [usageData, list] = await Promise.all([fetchUsage(), fetchPersonas()])
-    if (usageData) {
-      setPlanState(usageData.plan)
-      setUsage(usageData)
-      await setPlan(usageData.plan)
+  const estimatedCost = useMemo(() => {
+    const globalContextLength = userHint.length > 0 ? 4000 : 2000
+    return resolveCost(activeField, userHint, globalContextLength)
+  }, [activeField, userHint])
+
+  const flushPanelOpenMetrics = useCallback(async () => {
+    const batch = panelOpenBatchRef.current
+    if (batch.count === 0) return
+
+    const count = batch.count
+    const sources = Array.from(batch.sources)
+    batch.count = 0
+    batch.sources.clear()
+    if (batch.timer) {
+      window.clearTimeout(batch.timer)
+      batch.timer = null
     }
-    if (list.length) {
-      setPersonas(list)
-      setSelectedPersonaId((prev) => prev || list.find((item) => item.isDefault)?.id || list[0]?.id || "")
-      await cachePersonas(list)
-    } else {
-      const cached = await getCachedPersonas()
-      if (cached.length) {
-        setPersonas(cached)
-        setSelectedPersonaId(cached[0].id)
-      }
+
+    const metadata: Record<string, string | number | boolean> = {
+      batched: true,
+      count
+    }
+    if (sources.length) {
+      metadata.sources = sources.join(",")
+    }
+
+    try {
+      await sendMetric({
+        eventType: "panel_open",
+        metadata
+      })
+    } catch {
+      // ignore metrics errors
     }
   }, [])
 
+  const queuePanelOpenMetric = useCallback(
+    (source: string) => {
+      const batch = panelOpenBatchRef.current
+      batch.count += 1
+      batch.sources.add(source)
+      if (batch.timer) return
+
+      batch.timer = window.setTimeout(() => {
+        void flushPanelOpenMetrics()
+      }, PANEL_OPEN_BATCH_WINDOW_MS)
+    },
+    [flushPanelOpenMetrics]
+  )
+
   const trackMetric = useCallback(
     async (eventType: MetricEventType, metadata?: Record<string, string | number | boolean>) => {
+      if (eventType === "panel_open") {
+        const source = typeof metadata?.source === "string" ? metadata.source : "unknown"
+        queuePanelOpenMetric(source)
+        return
+      }
+
       try {
         await sendMetric({ eventType, metadata })
       } catch {
         // ignore metrics errors
       }
     },
-    []
+    [queuePanelOpenMetric]
   )
 
-  const activateField = useCallback((target: HTMLElement, openPanel: boolean) => {
-    activeElementRef.current = target
-    const field = extractFieldContext(target)
-    setActiveField(field)
-    setAnchorRect(target.getBoundingClientRect())
-    setIsManualMode(false)
-    setMode(detectLongDoc(field) || field.type === "file" ? "longDoc" : "shortText")
-    const pii = isPiiField(field)
-    setIsPii(pii)
-    setPanelOpen(openPanel || pii)
-    setTranslation("")
-    setReply("")
-    setError("")
-    setUpgradeUrl("")
-  }, [])
-
-  const handleFocus = useCallback(
-    (event: FocusEvent) => {
-      const target = event.target as HTMLElement | null
-      if (!target || !isSupportedInput(target)) return
-      activateField(target, false)
-    },
-    [activateField]
-  )
-
-  const handleScroll = useCallback(() => {
-    const target = activeElementRef.current
-    if (!target) return
-    setAnchorRect(target.getBoundingClientRect())
-  }, [])
-
-  const openManual = useCallback((text: string) => {
-    activeElementRef.current = null
-    const field: FieldContext = {
-      label: text,
-      placeholder: "",
-      type: "text",
-      surroundingText: ""
+  const refreshAccount = useCallback(async () => {
+    const auth = await getAuthState()
+    setAuthState(auth)
+    if (!auth) {
+      setUsageCredits(0)
+      setAccountHint("")
+      setComplianceProfile(null)
+      return
     }
-    setActiveField(field)
-    setAnchorRect(null)
-    setIsManualMode(true)
-    setMode("shortText")
-    setIsPii(isPiiField(field))
+
+    const [usageData, profile] = await Promise.all([fetchUsage(), fetchComplianceProfile()])
+    if (usageData) {
+      setUsageCredits(usageData.credits)
+      setAccountHint(usageData.trialHint || "")
+    }
+    setComplianceProfile(profile)
+  }, [])
+
+  const activateField = useCallback((target: HTMLElement | null, source: "shortcut" | "bubble" | "manual") => {
+    const currentScenario = sniffScenario()
+    setScenario(currentScenario)
+
+    if (target && isSupportedInput(target)) {
+      const field = extractFieldContext(target)
+      setActiveField(field)
+      setAnchorRect(target.getBoundingClientRect())
+      setSensitiveInputDetected(containsSensitiveValue((target as HTMLInputElement | HTMLTextAreaElement).value || ""))
+    } else {
+      setActiveField({
+        label: "Google Ads Appeal",
+        placeholder: "Describe your appeal objective",
+        type: "textarea",
+        surroundingText: ""
+      })
+      setAnchorRect(null)
+      setSensitiveInputDetected(false)
+    }
+
     setPanelOpen(true)
-    setTranslation("")
     setReply("")
     setError("")
-    setUpgradeUrl("")
-    void trackMetric("panel_open", { source: "manual" })
-  }, [])
+    setShouldBlurReply(false)
+    setRechargeCode("")
+    setRechargeStatus("")
+    setLastMeta(null)
+    setHasMaskedHint(false)
+    void trackMetric("panel_open", { source })
+  }, [trackMetric])
 
   useEffect(() => {
     const listener = (message: { action?: string; text?: string }) => {
-      if (message.action === "openManual" && message.text) {
-        openManual(message.text)
+      if (message.action === "openManual") {
+        setUserHint(message.text || "")
+        activateField(null, "manual")
       }
     }
     chrome.runtime.onMessage.addListener(listener)
     return () => chrome.runtime.onMessage.removeListener(listener)
-  }, [openManual])
+  }, [activateField])
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey)) return
       if (event.key.toLowerCase() !== "m") return
       if (event.repeat) return
-      const target = event.target as HTMLElement | null
-      if (!target) return
       const path = event.composedPath()
       if (panelRootRef.current && path.includes(panelRootRef.current)) return
-      if (!isSupportedInput(target)) return
       event.preventDefault()
-      activateField(target, true)
-      void trackMetric("panel_open", { source: "shortcut" })
+      const target = document.activeElement as HTMLElement | null
+      activateField(target, "shortcut")
     }
 
-    document.addEventListener("keydown", handleShortcut, true)
-    return () => document.removeEventListener("keydown", handleShortcut, true)
-  }, [activateField, trackMetric])
+    const visibilityHandler = () => {
+      if (document.visibilityState === "hidden") {
+        void flushPanelOpenMetrics()
+      }
+    }
 
-  useEffect(() => {
-    const storageListener = (
-      changes: { [key: string]: chrome.storage.StorageChange },
-      areaName: string
-    ) => {
+    const storageListener = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
       if (areaName !== "local") return
       if (changes.authState) {
         const nextState = (changes.authState.newValue as AuthState | null) || null
         setAuthState(nextState)
         if (nextState) {
-          refreshAccount()
+          void refreshAccount()
         } else {
-          setPlanState("unknown")
-          setPersonas([])
-          setUsage(null)
+          setUsageCredits(0)
+          setAccountHint("")
+          setComplianceProfile(null)
         }
       }
     }
 
-    document.addEventListener("focusin", handleFocus)
-    window.addEventListener("scroll", handleScroll, { passive: true })
-    window.addEventListener("resize", handleScroll)
-    refreshAccount()
+    document.addEventListener("keydown", handleShortcut, true)
+    document.addEventListener("visibilitychange", visibilityHandler)
     chrome.storage.onChanged.addListener(storageListener)
+    void refreshAccount()
 
     return () => {
-      document.removeEventListener("focusin", handleFocus)
-      window.removeEventListener("scroll", handleScroll)
-      window.removeEventListener("resize", handleScroll)
+      document.removeEventListener("keydown", handleShortcut, true)
+      document.removeEventListener("visibilitychange", visibilityHandler)
       chrome.storage.onChanged.removeListener(storageListener)
       if (copyTimerRef.current) {
         window.clearTimeout(copyTimerRef.current)
       }
+      if (teaserTimerRef.current) {
+        window.clearInterval(teaserTimerRef.current)
+      }
+      void flushPanelOpenMetrics()
     }
-  }, [handleFocus, handleScroll, refreshAccount])
+  }, [flushPanelOpenMetrics, refreshAccount, activateField])
+
+  useEffect(() => {
+    if (!panelOpen) return
+    const target = document.activeElement as HTMLElement | null
+    if (!target || !isSupportedInput(target)) return
+
+    const poll = () => {
+      const value = (target as HTMLInputElement | HTMLTextAreaElement).value || ""
+      setSensitiveInputDetected(containsSensitiveValue(value))
+    }
+
+    poll()
+    const timer = window.setInterval(poll, 500)
+    return () => window.clearInterval(timer)
+  }, [panelOpen, activeField])
 
   const startGeneration = useCallback(
     async (overrideHint?: string) => {
@@ -250,165 +341,255 @@ export default function FormPilotUi() {
         return
       }
 
-      const previewOnly = plan === "free" && mode === "longDoc"
-      if (previewOnly) {
-        void trackMetric("paywall_shown", { reason: "long_doc", mode })
-      }
-
-      setTranslation("")
       setReply("")
       setIsGenerating(true)
       setError("")
-      setUpgradeUrl("")
-      setContextMeta(null)
+      setShouldBlurReply(false)
+      setRechargeStatus("")
+      setLastMeta(null)
+      if (teaserTimerRef.current) {
+        window.clearInterval(teaserTimerRef.current)
+        teaserTimerRef.current = null
+      }
       let hadError = false
+      let blockedByCredits = false
 
       const parser = createStreamParser({
-        onTranslation: (text) => setTranslation((prev) => prev + text),
-        onReply: (text) =>
-          setReply((prev) => {
-            if (!previewOnly) return prev + text
-            if (prev.length >= PREVIEW_LIMIT) return prev
-            const remaining = PREVIEW_LIMIT - prev.length
-            return prev + text.slice(0, Math.max(0, remaining))
-          })
+        onTranslation: () => {
+          // translation block removed in panel UI
+        },
+        onReply: (text) => {
+          const restored = restoreMaskedText(text, maskedPairsRef.current)
+          setReply((prev) => prev + restored)
+        }
       })
 
       try {
-        const persona = personas.find((item) => item.id === selectedPersonaId) || personas[0]
-        if (!persona) {
-          setError("请先配置人设")
-          return
-        }
-
         const pageContext = extractPageContext()
-        const useGlobalContext = plan === "pro"
-        const globalContext = useGlobalContext ? extractGlobalContext() : undefined
-        const config = await getAppConfig()
-        const rawHint = typeof overrideHint === "string" ? overrideHint : userHint
-        const resolvedHint = resolveSlashCommands(rawHint, {
-          pageContext,
-          fieldContext: activeField,
-          persona
-        })
+        const currentScenario = sniffScenario()
+        setScenario(currentScenario)
+        if (overrideHint) {
+          void trackMetric("rewrite_click", {
+            scenario: currentScenario,
+            tweak: true
+          })
+        }
+        const useGlobalContext = true
+        const globalContext = extractGlobalContext()
+        const resolvedHint = typeof overrideHint === "string" ? `${userHint}\n${overrideHint}`.trim() : userHint
+        const maskedHint = maskSensitiveText(resolvedHint, 1)
+        const maskedGlobal = maskSensitiveText(globalContext, maskedHint.nextIndex)
+        maskedPairsRef.current = [...maskedHint.pairs, ...maskedGlobal.pairs]
+        setHasMaskedHint(maskedPairsRef.current.length > 0)
 
         await generateContent(
           {
             pageContext,
             fieldContext: activeField,
-            personaId: persona.id,
-            userHint: resolvedHint,
-            mode,
+            scenario: currentScenario,
+            complianceSnapshot: complianceProfile || undefined,
+            userHint: maskedHint.masked,
+            mode: detectLongDoc(activeField) ? "longDoc" : ("shortText" as GenerateMode),
             useGlobalContext,
-            globalContext,
-            previewOnly
+            globalContext: maskedGlobal.masked
           },
           {
             onToken: (token) => parser.push(token),
-            onError: (message, url) => {
-              hadError = true
-              setError(message)
-              if (url) setUpgradeUrl(url)
-              if (url) {
-                void trackMetric("paywall_shown", { reason: message, mode })
-              }
-            },
             onMeta: (meta) => {
-              if (typeof meta.contextTotal === "number") {
-                setContextMeta({
-                  total: meta.contextTotal,
-                  omitted: meta.contextOmitted || 0
-                })
-              }
+              setLastMeta(meta)
             },
-            byokKey: plan === "pro" ? config.byokKey : undefined
+            onError: (message, details) => {
+              hadError = true
+              if (details?.errorCode === "INSUFFICIENT_CREDITS") {
+                blockedByCredits = true
+                const teaser = teaserText(details.requiredCredits || estimatedCost)
+                setReply("")
+                setShouldBlurReply(false)
+                setRechargeStatus("余额不足，请输入充值码后重新生成完整方案。")
+                let cursor = 0
+                teaserTimerRef.current = window.setInterval(() => {
+                  cursor += 8
+                  setReply(teaser.slice(0, cursor))
+                  if (cursor >= teaser.length) {
+                    if (teaserTimerRef.current) {
+                      window.clearInterval(teaserTimerRef.current)
+                      teaserTimerRef.current = null
+                    }
+                    setShouldBlurReply(true)
+                  }
+                }, 20)
+                void trackMetric("paywall_shown", {
+                  reason: "insufficient_credits",
+                  requiredCredits: details.requiredCredits || estimatedCost
+                })
+              } else {
+                setError(message)
+              }
+            }
           }
         )
+
         const usageData = await fetchUsage()
         if (usageData) {
-          setUsage(usageData)
-          setPlanState(usageData.plan)
+          setUsageCredits(usageData.credits)
+          setAccountHint(usageData.trialHint || "")
         }
-        if (!hadError) {
-          void trackMetric("generate_success", { mode, plan })
+        if (!hadError && !blockedByCredits) {
+          void trackMetric("generate_success", {
+            scenario: currentScenario,
+            mode: detectLongDoc(activeField) ? "longDoc" : "shortText"
+          })
         }
       } finally {
         parser.flush()
         setIsGenerating(false)
       }
     },
-    [activeField, authState, personas, selectedPersonaId, userHint, mode, plan]
+    [activeField, authState, userHint, complianceProfile, estimatedCost, trackMetric]
   )
 
   const handleCopy = useCallback(async () => {
     if (!reply) return
-    if (plan === "free" && mode === "longDoc") return
     await navigator.clipboard.writeText(reply)
     setCopied(true)
     if (copyTimerRef.current) {
       window.clearTimeout(copyTimerRef.current)
     }
-    copyTimerRef.current = window.setTimeout(() => setCopied(false), 2000)
-    void trackMetric("copy_success", { mode, plan })
-  }, [reply, mode, plan, trackMetric])
+    copyTimerRef.current = window.setTimeout(() => setCopied(false), 1800)
+    void trackMetric("copy_success", { scenario })
+  }, [reply, scenario, trackMetric])
 
-  const usageLabel = useMemo(() => {
-    if (!usage) return ""
-    if (usage.limit === -1) return `本月已用 ${usage.used} 次`
-    const remaining = Math.max(usage.limit - usage.used, 0)
-    return `本月剩余 ${remaining} 次`
-  }, [usage])
+  const openLongDocWorkspace = useCallback(() => {
+    const url = chrome.runtime.getURL("options.html#longdoc")
+    if (chrome.windows?.create) {
+      chrome.windows.create({
+        url,
+        type: "popup",
+        width: 1160,
+        height: 780,
+        focused: true
+      })
+      return
+    }
+    chrome.runtime.openOptionsPage()
+  }, [])
 
-  const isLoggedIn = Boolean(authState)
-  const isPreview = plan === "free" && mode === "longDoc"
+  const handleRedeemCode = useCallback(async () => {
+    if (!authState) {
+      setRechargeStatus("请先登录")
+      return
+    }
 
-  if (!activeField && !isManualMode) return null
+    const code = rechargeCode.trim()
+    if (!code) {
+      setRechargeStatus("请输入充值码")
+      return
+    }
 
-  const iconPosition = calcPosition(anchorRect)
+    setRecharging(true)
+    setRechargeStatus("")
+    try {
+      const result = await redeemInvite(code)
+      setUsageCredits(result.credits)
+      setAccountHint("")
+      setError("")
+      setShouldBlurReply(false)
+      setReply("")
+      setRechargeCode("")
+      setRechargeStatus(`兑换成功，已到账 ${result.creditsAdded} 点。当前余额 ${result.credits} 点，请重新生成。`)
+    } catch (error) {
+      setRechargeStatus(error instanceof Error ? error.message : "兑换失败")
+    } finally {
+      setRecharging(false)
+    }
+  }, [authState, rechargeCode])
+
+  if (!panelOpen) {
+    const iconPosition = {
+      top: window.innerHeight - 74,
+      left: window.innerWidth - 174
+    }
+    return (
+      <FormPilotPanel
+        panelOpen={false}
+        reply={reply}
+        isGenerating={isGenerating}
+        error={error}
+        userHint={userHint}
+        copied={copied}
+        isLoggedIn={Boolean(authState)}
+        scenario={scenario}
+        credits={usageCredits}
+        accountHint={accountHint}
+        estimatedCost={estimatedCost}
+        complianceWarnings={complianceWarnings}
+        hasMaskedHint={hasMaskedHint || sensitiveInputDetected}
+        shouldBlurReply={shouldBlurReply}
+        rechargeCode={rechargeCode}
+        rechargeStatus={rechargeStatus}
+        recharging={recharging}
+        iconPosition={iconPosition}
+        panelPosition={panelPosition}
+        rootRef={panelRootRef}
+        onOpenPanel={() => activateField(document.activeElement as HTMLElement | null, "bubble")}
+        onClosePanel={() => setPanelOpen(false)}
+        onStartGeneration={startGeneration}
+        onCopy={handleCopy}
+        onUserHintChange={setUserHint}
+        onRechargeCodeChange={setRechargeCode}
+        onRedeemCode={handleRedeemCode}
+        onOpenOptions={() => chrome.runtime.openOptionsPage()}
+        onOpenLongDocWorkspace={openLongDocWorkspace}
+        onFeedback={() => {
+          // hidden while panel closed
+        }}
+      />
+    )
+  }
+
+  const iconPosition = {
+    top: window.innerHeight - 74,
+    left: window.innerWidth - 174
+  }
 
   return (
     <FormPilotPanel
       panelOpen={panelOpen}
-      isPii={isPii}
-      translation={translation}
       reply={reply}
       isGenerating={isGenerating}
       error={error}
-      upgradeUrl={upgradeUrl}
-      personas={personas}
-      selectedPersonaId={selectedPersonaId}
       userHint={userHint}
-      mode={mode}
-      plan={plan}
-      usageLabel={usageLabel}
       copied={copied}
-      contextMeta={contextMeta}
+      isLoggedIn={Boolean(authState)}
+      scenario={scenario}
+      credits={usageCredits}
+      accountHint={accountHint}
+      estimatedCost={lastMeta?.creditsCost || estimatedCost}
+      complianceWarnings={complianceWarnings}
+      hasMaskedHint={hasMaskedHint || sensitiveInputDetected}
+      shouldBlurReply={shouldBlurReply}
+      rechargeCode={rechargeCode}
+      rechargeStatus={rechargeStatus}
+      recharging={recharging}
       iconPosition={iconPosition}
       panelPosition={panelPosition}
-      isLoggedIn={isLoggedIn}
       rootRef={panelRootRef}
-      onOpenPanel={() => {
-        setPanelOpen(true)
-        void trackMetric("panel_open", { source: "icon" })
-      }}
+      onOpenPanel={() => activateField(document.activeElement as HTMLElement | null, "bubble")}
       onClosePanel={() => setPanelOpen(false)}
       onStartGeneration={startGeneration}
       onCopy={handleCopy}
-      onSelectPersona={setSelectedPersonaId}
       onUserHintChange={setUserHint}
-      onModeChange={setMode}
+      onRechargeCodeChange={setRechargeCode}
+      onRedeemCode={handleRedeemCode}
       onOpenOptions={() => chrome.runtime.openOptionsPage()}
-      onOpenUpgrade={(url) => {
-        if (url) {
-          chrome.tabs.create({ url })
-        } else {
-          chrome.runtime.openOptionsPage()
-        }
-      }}
-      isPreview={isPreview}
-      previewLimit={PREVIEW_LIMIT}
-      onTrackMetric={(eventType, metadata) => {
-        void trackMetric(eventType, metadata)
+      onOpenLongDocWorkspace={openLongDocWorkspace}
+      onFeedback={(outcome) => {
+        if (!lastMeta?.templateId || !lastMeta?.scenario) return
+        void sendPromptFeedback({
+          templateId: lastMeta.templateId,
+          scenario: lastMeta.scenario === "ads_compliance" ? "ads_compliance" : "general",
+          outcome
+        })
       }}
     />
   )

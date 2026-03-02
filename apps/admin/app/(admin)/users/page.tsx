@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useAuth } from "../../lib/auth"
-import { fetchUsers, updateUserPlan, type AdminUserRow } from "../../lib/api"
+import { fetchUsers, updateUserCredits, type AdminUserRow } from "../../lib/api"
 
 function formatDate(value?: string | null) {
   if (!value) return "-"
@@ -38,11 +38,11 @@ export default function UsersPage() {
     }
   }
 
-  const applyPlan = async (userId: string, payload: { plan: string; currentPeriodEnd?: string | null }) => {
+  const applyCreditsUpdate = async (userId: string, credits: number) => {
     if (!session) return
     setStatus("")
     try {
-      await updateUserPlan(session.access_token, userId, payload)
+      await updateUserCredits(session.access_token, userId, { credits })
       await load()
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "更新失败")
@@ -50,15 +50,15 @@ export default function UsersPage() {
   }
 
   useEffect(() => {
-    load()
+    void load()
   }, [session, page])
 
   return (
     <div>
       <div className="hero">
         <div>
-          <h2>用户管理</h2>
-          <p>按邮箱或 UID 搜索，并快速调整套餐。</p>
+          <h2>用户与点数</h2>
+          <p>按邮箱或 UID 搜索，并快速调整点数。</p>
         </div>
       </div>
 
@@ -75,15 +75,13 @@ export default function UsersPage() {
             className="button"
             onClick={() => {
               setPage(1)
-              load()
+              void load()
             }}
           >
             搜索
           </button>
         </div>
-        {status && <div className="notice" style={{ marginTop: 12 }}>
-          {status}
-        </div>}
+        {status && <div className="notice" style={{ marginTop: 12 }}>{status}</div>}
       </div>
 
       <div className="card" style={{ marginTop: 16 }}>
@@ -91,8 +89,8 @@ export default function UsersPage() {
           <thead>
             <tr>
               <th>用户</th>
-              <th>套餐</th>
-              <th>到期时间</th>
+              <th>角色</th>
+              <th>点数</th>
               <th>最近使用</th>
               <th>操作</th>
             </tr>
@@ -104,8 +102,8 @@ export default function UsersPage() {
                   <div>{row.email || "-"}</div>
                   <div className="notice">{row.id}</div>
                 </td>
-                <td>{row.plan}</td>
-                <td>{formatDate(row.currentPeriodEnd)}</td>
+                <td>{row.role || "user"}</td>
+                <td>{row.credits}</td>
                 <td>{formatDate(row.lastUsage)}</td>
                 <td>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -113,30 +111,19 @@ export default function UsersPage() {
                       type="button"
                       className="button ghost"
                       onClick={async () => {
-                        await applyPlan(row.id, { plan: "free", currentPeriodEnd: null })
+                        await applyCreditsUpdate(row.id, row.credits + 20)
                       }}
                     >
-                      设为 Free
-                    </button>
-                    <button
-                      type="button"
-                      className="button"
-                      onClick={async () => {
-                        const end = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-                        await applyPlan(row.id, { plan: "pro", currentPeriodEnd: end })
-                      }}
-                    >
-                      7 天 Pro
+                      +20 点
                     </button>
                     <button
                       type="button"
                       className="button ghost"
                       onClick={async () => {
-                        const end = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-                        await applyPlan(row.id, { plan: "pro", currentPeriodEnd: end })
+                        await applyCreditsUpdate(row.id, row.credits + 100)
                       }}
                     >
-                      30 天 Pro
+                      +100 点
                     </button>
                   </div>
                 </td>

@@ -1,6 +1,11 @@
 import { supabase } from "./db"
 
-export type AdminAuditAction = "plan_update" | "invite_generate" | "invite_redeem"
+export type AdminAuditAction =
+  | "credits_update"
+  | "invite_generate"
+  | "invite_redeem"
+  | "prompt_create"
+  | "prompt_update"
 
 export async function recordAdminAudit(params: {
   adminId: string | null

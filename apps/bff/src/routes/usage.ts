@@ -1,8 +1,8 @@
 import type { Context } from "hono"
 import { getAuthUser } from "../auth"
-import { ensureActivePlan, getOrCreateUserRecord } from "../user"
-import { FREE_MONTHLY_LIMIT, getMonthlyUsageCount, getUsageMonthKey } from "../usage"
 import { jsonError } from "../response"
+import { ensureDeviceCreditGrant, getOrCreateUserRecord } from "../user"
+import { getLifetimeCreditsUsed } from "../usage"
 
 export async function usageHandler(c: Context): Promise<Response> {
   const authUser = await getAuthUser(c)
@@ -13,15 +13,23 @@ export async function usageHandler(c: Context): Promise<Response> {
     })
   }
 
-  const now = new Date()
-  const userRecord = await ensureActivePlan(await getOrCreateUserRecord(authUser.id, authUser.email), now)
-  const used = await getMonthlyUsageCount(userRecord.id, now)
-  const limit = userRecord.plan === "pro" ? -1 : FREE_MONTHLY_LIMIT
+  let userRecord = await getOrCreateUserRecord(authUser.id, authUser.email)
+  const deviceId = c.req.header("x-device-id") || ""
+  const grantResult = await ensureDeviceCreditGrant({ userId: userRecord.id, deviceId })
+  userRecord = await getOrCreateUserRecord(authUser.id, authUser.email)
+  const lifetimeUsed = await getLifetimeCreditsUsed(userRecord.id)
+
+  const trialHint =
+    grantResult.status === "already_claimed"
+      ? "该设备已体验过免费额度，请使用充值码继续。"
+      : grantResult.status === "missing_device"
+        ? "未识别设备指纹，无法发放新手额度。"
+        : undefined
 
   return c.json({
-    month: getUsageMonthKey(now),
-    used,
-    limit,
-    plan: userRecord.plan
+    credits: userRecord.credits,
+    lifetimeUsed,
+    trialStatus: grantResult.status,
+    trialHint
   })
 }
