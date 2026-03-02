@@ -134,6 +134,8 @@ alter table metrics_events
       'longdoc_generate_success',
       'longdoc_copy_success',
       'longdoc_download',
+      'draft_accepted',
+      'draft_rejected',
       'appeal_feedback_success',
       'appeal_feedback_fail'
     )
@@ -144,6 +146,7 @@ create index if not exists compliance_profiles_user_idx on compliance_profiles (
 create index if not exists prompt_templates_scenario_idx on prompt_templates (scenario, active);
 create index if not exists prompt_feedback_template_idx on prompt_feedback (prompt_template_id, created_at);
 create index if not exists usage_logs_user_id_idx on usage_logs (user_id, timestamp);
+create index if not exists usage_logs_user_success_idx on usage_logs (user_id, success);
 create index if not exists usage_logs_template_idx on usage_logs (prompt_template_id);
 create index if not exists metrics_events_user_id_idx on metrics_events (user_id, timestamp);
 create index if not exists invite_codes_code_idx on invite_codes (code);
@@ -197,18 +200,22 @@ select
   count(distinct case when event_type = 'generate_success' then user_id end) as generate_users,
   count(distinct case when event_type = 'copy_success' then user_id end) as copy_users,
   count(distinct case when event_type = 'paywall_shown' then user_id end) as paywall_users,
-  count(distinct case when event_type = 'appeal_feedback_success' then user_id end) as feedback_success_users,
-  count(distinct case when event_type = 'appeal_feedback_fail' then user_id end) as feedback_fail_users
+  count(distinct case when event_type in ('draft_accepted', 'appeal_feedback_success') then user_id end) as feedback_success_users,
+  count(distinct case when event_type in ('draft_rejected', 'appeal_feedback_fail') then user_id end) as feedback_fail_users
 from metrics_events
 group by date_trunc('day', timestamp);
 
 create or replace function increment_user_credits(p_user_id uuid, p_amount integer)
-returns boolean as $$
+returns integer as $$
+declare
+  next_credits integer;
 begin
   update users
   set credits = greatest(credits, 0) + greatest(p_amount, 0)
-  where id = p_user_id;
-  return found;
+  where id = p_user_id
+  returning credits into next_credits;
+
+  return coalesce(next_credits, 0);
 end;
 $$ language plpgsql;
 
@@ -222,6 +229,17 @@ begin
   return found;
 end;
 $$ language plpgsql;
+
+create or replace function get_lifetime_credits_used_sum(p_user_id uuid)
+returns bigint
+language sql
+stable
+as $$
+  select coalesce(sum(greatest(credits_cost, 0)), 0)::bigint
+  from usage_logs
+  where user_id = p_user_id
+    and success = true
+$$;
 
 insert into prompt_templates (scenario, name, template_body, weight, active)
 select

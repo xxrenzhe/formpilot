@@ -14,10 +14,18 @@ export async function usageHandler(c: Context): Promise<Response> {
   }
 
   let userRecord = await getOrCreateUserRecord(authUser.id, authUser.email)
-  const deviceId = c.req.header("x-device-id") || ""
-  const grantResult = await ensureDeviceCreditGrant({ userId: userRecord.id, deviceId })
-  userRecord = await getOrCreateUserRecord(authUser.id, authUser.email)
-  const lifetimeUsed = await getLifetimeCreditsUsed(userRecord.id)
+  const [grantResult, lifetimeUsed] = await Promise.all([
+    ensureDeviceCreditGrant({
+      userId: userRecord.id,
+      deviceId: c.req.header("x-device-id") || "",
+      currentCredits: userRecord.credits
+    }),
+    getLifetimeCreditsUsed(userRecord.id)
+  ])
+  userRecord = {
+    ...userRecord,
+    credits: grantResult.credits
+  }
 
   const trialHint =
     grantResult.status === "already_claimed"

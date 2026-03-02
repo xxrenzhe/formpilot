@@ -1,5 +1,6 @@
 import type { AppScenario, PromptTemplate } from "@formpilot/shared"
 import { supabase } from "./db"
+import { env } from "./config"
 
 function mapTemplate(row: {
   id: string
@@ -128,7 +129,11 @@ export async function recordPromptFeedback(input: {
   })
   if (error) throw error
 
-  const delta = input.outcome === "success" ? 0.15 : -0.25
+  if (!env.promptAutoWeightEnabled) {
+    return
+  }
+
+  const delta = input.outcome === "success" ? env.promptWeightDeltaAccept : env.promptWeightDeltaReject
   const { data: row, error: queryError } = await supabase
     .from("prompt_templates")
     .select("weight")

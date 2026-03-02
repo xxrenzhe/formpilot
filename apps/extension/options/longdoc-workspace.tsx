@@ -22,25 +22,24 @@ import {
 
 const LONG_DOC_CONTEXT_DESCRIPTION = "FormPilot Ads Compliance Focus Mode"
 const DRAFT_SAVE_DELAY_MS = 800
+const RECHARGE_URL = process.env.PLASMO_PUBLIC_RECHARGE_URL || "https://formpilot.ai/recharge"
 
 function formatDraftTimeLabel(timestamp: number): string {
   const date = new Date(timestamp)
   return Number.isNaN(date.getTime()) ? "刚刚" : date.toLocaleString("zh-CN")
 }
 
-function buildHint(goal: string, reference: string): string {
-  const sections: string[] = []
-  const cleanedGoal = goal.trim()
-  const cleanedReference = reference.trim()
-
-  if (cleanedGoal) sections.push(cleanedGoal)
-  if (cleanedReference) sections.push(`证据材料:\n${cleanedReference}`)
-  return sections.join("\n\n")
+function buildHint(goal: string): string {
+  return goal.trim()
 }
 
-function missingFieldWarnings(profile: ComplianceProfile | null): string[] {
+function missingFieldWarnings(profile: ComplianceProfile | null, hasContextPool: boolean): string[] {
+  if (hasContextPool) {
+    return []
+  }
+
   if (!profile) {
-    return ["请先在控制台补充企业法定名称、官网、主营业务与退换货政策链接。"]
+    return ["可选增强：补充企业资质库（公司名、官网、主营业务）可提升稳定性。"]
   }
 
   const mapping: Array<[boolean, string]> = [
@@ -86,6 +85,7 @@ export function LongDocWorkspace() {
   const [rechargeCode, setRechargeCode] = useState("")
   const [rechargeStatus, setRechargeStatus] = useState("")
   const [recharging, setRecharging] = useState(false)
+  const [sendContextPool, setSendContextPool] = useState(true)
 
   const copyTimerRef = useRef<number | null>(null)
   const didTrackOpenRef = useRef(false)
@@ -162,14 +162,15 @@ export function LongDocWorkspace() {
 
   const isLoggedIn = Boolean(authState)
   const hasDraftContent = Boolean(docTitle.trim() || goal.trim() || reference.trim())
+  const hasContextPool = Boolean(reference.trim())
   const estimatedCost = useMemo(() => {
     if (reference.trim().length > 7000) return 10
     return 5
   }, [reference])
   const complianceWarnings = useMemo(() => {
-    const merged = [...(meta?.missingFields || []), ...missingFieldWarnings(profile)]
+    const merged = [...(meta?.missingFields || []), ...missingFieldWarnings(profile, hasContextPool)]
     return Array.from(new Set(merged.filter((item) => item && item.trim())))
-  }, [meta, profile])
+  }, [meta, profile, hasContextPool])
 
   const handleSaveDraft = useCallback(async () => {
     if (!hasDraftContent) {
@@ -200,9 +201,11 @@ export function LongDocWorkspace() {
       return
     }
 
-    const hint = buildHint(goal, reference)
-    if (!hint) {
-      setError("请先输入文档目标或核心要求")
+    const hint = buildHint(goal)
+    const contextPool = reference.trim()
+    const effectiveContextPool = sendContextPool ? contextPool : ""
+    if (!hint && !effectiveContextPool) {
+      setError("请先输入文档目标，或启用并填写 Context Pool")
       return
     }
 
@@ -226,8 +229,8 @@ export function LongDocWorkspace() {
       let maskIndex = 1
       const maskedHint = maskSensitiveText(hint, maskIndex)
       maskIndex = maskedHint.nextIndex
-      const maskedContext = maskSensitiveText(reference.trim(), maskIndex)
-      maskedPairs.push(...maskedHint.pairs, ...maskedContext.pairs)
+      const maskedContextPool = maskSensitiveText(effectiveContextPool, maskIndex)
+      maskedPairs.push(...maskedHint.pairs, ...maskedContextPool.pairs)
       if (maskedPairs.length > 0) {
         setMaskedNotice(`已在本地脱敏 ${maskedPairs.length} 处敏感信息`)
       }
@@ -250,8 +253,8 @@ export function LongDocWorkspace() {
           complianceSnapshot: profile || undefined,
           userHint: maskedHint.masked,
           mode: "longDoc",
-          useGlobalContext: true,
-          globalContext: maskedContext.masked || undefined
+          contextPool: sendContextPool && maskedContextPool.masked ? maskedContextPool.masked : undefined,
+          useGlobalContext: false
         },
         {
           onToken: (token) => parser.push(token),
@@ -285,14 +288,15 @@ export function LongDocWorkspace() {
         setStatus("长文档生成完成")
         void trackMetric("longdoc_generate_success", {
           chars: generatedChars,
-          hasReference: Boolean(reference.trim())
+          hasContextPool,
+          contextPoolSent: sendContextPool && Boolean(maskedContextPool.masked)
         })
       }
     } finally {
       parser.flush()
       setIsGenerating(false)
     }
-  }, [isLoggedIn, goal, reference, docTitle, profile, trackMetric, credits])
+  }, [isLoggedIn, goal, reference, docTitle, profile, trackMetric, credits, hasContextPool, sendContextPool])
 
   const handleRedeem = useCallback(async () => {
     if (!isLoggedIn) {
@@ -380,7 +384,8 @@ export function LongDocWorkspace() {
           </div>
         </header>
 
-        <section className="space-y-4 rounded-2xl border border-slate-700 bg-slate-800/90 p-4">
+        <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
+          <section className="space-y-4 rounded-2xl border border-slate-700 bg-slate-800/90 p-4">
           <input
             className="w-full rounded-lg border border-slate-600 bg-slate-900/80 px-3 py-2 text-sm"
             placeholder="申诉主题（例如：Business Operations Verification）"
@@ -397,75 +402,98 @@ export function LongDocWorkspace() {
           <textarea
             className="w-full rounded-lg border border-slate-600 bg-slate-900/80 px-3 py-2 text-sm"
             rows={7}
-            placeholder="粘贴证据、政策链接、站点信息、工单记录等参考资料"
+            placeholder="临时上下文池（Context Pool）：可粘贴商业计划、供应链说明、官网 About Us、工单记录等"
             value={reference}
             onChange={(event) => setReference(event.target.value)}
           />
+          <div className="flex items-center gap-2 text-xs text-slate-300">
+            <input
+              type="checkbox"
+              id="sendContextPool"
+              checked={sendContextPool}
+              onChange={(event) => setSendContextPool(event.target.checked)}
+              className="rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500"
+            />
+            <label htmlFor="sendContextPool" className="cursor-pointer">
+              发送 Context Pool（若本次申请包含商业机密，可取消勾选，仅发送“文档目标”）
+            </label>
+          </div>
           {complianceWarnings.length > 0 && (
-            <div className="rounded-lg border border-rose-300 bg-rose-100/90 p-3 text-xs text-rose-900">
-              <div className="font-semibold">⚠️ 合规资质缺失，极易触发 Google 审核风控</div>
+            <div className="rounded-lg border border-amber-300 bg-amber-100/90 p-3 text-xs text-amber-900">
+              <div className="font-semibold">可选增强：补全资质库可提升通过稳定性</div>
               <div className="mt-1 leading-5">{complianceWarnings.join("；")}</div>
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
-              onClick={handleGenerate}
-              disabled={isGenerating}
-            >
-              {isGenerating ? "生成中..." : `生成完整申诉信 (${estimatedCost} 点)`}
-            </button>
-            <button type="button" className="rounded-lg border border-slate-600 px-3 py-2 text-xs" onClick={handleCopy}>
-              {copied ? "已复制" : "复制正文"}
-            </button>
-            <button type="button" className="rounded-lg border border-slate-600 px-3 py-2 text-xs" onClick={handleDownload}>
-              下载文本
-            </button>
-          </div>
-          {needRecharge && (
-            <div className="rounded-lg border border-amber-300 bg-amber-100/90 p-3 text-xs text-amber-900">
-              <div className="font-semibold">余额不足，需 {requiredCredits || estimatedCost} 点</div>
-              <div className="mt-1">请输入充值码后继续生成完整申诉信。</div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <input
-                  className="min-w-[260px] flex-1 rounded-md border border-amber-300 bg-white px-2 py-1 text-xs uppercase tracking-wider text-slate-800"
-                  value={rechargeCode}
-                  onChange={(event) => setRechargeCode(event.target.value)}
-                  placeholder="FP-ADS-XXXX-XXXX-XXXX-XXXX"
-                />
-                <button
-                  type="button"
-                  className="rounded-md bg-amber-700 px-3 py-1 text-xs font-semibold text-white disabled:opacity-60"
-                  onClick={handleRedeem}
-                  disabled={recharging}
-                >
-                  {recharging ? "兑换中..." : "兑换充值码"}
-                </button>
-              </div>
-            </div>
-          )}
-          {draftNotice && <div className="text-xs text-slate-300">{draftNotice}</div>}
-          {maskedNotice && <div className="text-xs text-slate-300">{maskedNotice}</div>}
-          {rechargeStatus && <div className="text-xs text-amber-200">{rechargeStatus}</div>}
-          {status && <div className="text-xs text-emerald-300">{status}</div>}
-          {error && <div className="text-xs text-rose-300">{error}</div>}
-        </section>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+                        onClick={handleGenerate}
+                        disabled={isGenerating}
+                      >
+                        {isGenerating ? "生成中..." : `生成完整申诉信 (${estimatedCost} 点)`}
+                      </button>
+                      <button type="button" className="rounded-lg border border-slate-600 px-3 py-2 text-xs" onClick={handleCopy}>
+                        {copied ? "已复制" : "复制正文"}
+                      </button>
+                      <button type="button" className="rounded-lg border border-slate-600 px-3 py-2 text-xs" onClick={handleDownload}>
+                        下载文本
+                      </button>
+                    </div>
+                    {needRecharge && (
+                      <div className="rounded-lg border border-amber-300 bg-amber-100/90 p-3 text-xs text-amber-900">
+                        <div className="font-semibold">余额不足，需 {requiredCredits || estimatedCost} 点</div>
+                        <div className="mt-1">请输入充值码后继续生成完整申诉信。</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <input
+                            className="min-w-[260px] flex-1 rounded-md border border-amber-300 bg-white px-2 py-1 text-xs uppercase tracking-wider text-slate-800"
+                            value={rechargeCode}
+                            onChange={(event) => setRechargeCode(event.target.value)}
+                            placeholder="FP-ADS-XXXX"
+                          />
+                          <button
+                            type="button"
+                            className="rounded-md bg-amber-700 px-3 py-1 text-xs font-semibold text-white disabled:opacity-60"
+                            onClick={handleRedeem}
+                            disabled={recharging}
+                          >
+                            {recharging ? "兑换中..." : "兑换充值码"}
+                          </button>
+                        </div>
+                        <div className="mt-3">
+                          <a
+                            href={RECHARGE_URL}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded bg-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-300 transition"
+                          >
+                            [获取专属充值码]
+                          </a>
+                        </div>
+                      </div>
+                    )}
+            {draftNotice && <div className="text-xs text-slate-300">{draftNotice}</div>}
+            {maskedNotice && <div className="text-xs text-slate-300">{maskedNotice}</div>}
+            {rechargeStatus && <div className="text-xs text-amber-200">{rechargeStatus}</div>}
+            {status && <div className="text-xs text-emerald-300">{status}</div>}
+            {error && <div className="text-xs text-rose-300">{error}</div>}
+          </section>
 
-        <section className="space-y-3 rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
-          {translation && (
-            <div className="rounded-lg border border-slate-700 bg-slate-950/80 p-3 text-xs text-slate-300">
-              <div className="mb-1 text-[11px] text-slate-400">中文对照</div>
-              <div className="whitespace-pre-wrap leading-6">{translation}</div>
+          <section className="space-y-3 rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
+            {translation && (
+              <div className="rounded-lg border border-slate-700 bg-slate-950/80 p-3 text-xs text-slate-300">
+                <div className="mb-1 text-[11px] text-slate-400">中文对照</div>
+                <div className="whitespace-pre-wrap leading-6">{translation}</div>
+              </div>
+            )}
+            <div className="rounded-lg border border-slate-700 bg-slate-950/80 p-3">
+              <div className="mb-2 text-[11px] text-slate-400">英文提交正文</div>
+              <pre className="whitespace-pre-wrap break-words font-mono text-[13px] leading-6 text-slate-100">
+                {output || "生成结果将在这里显示"}
+              </pre>
             </div>
-          )}
-          <div className="rounded-lg border border-slate-700 bg-slate-950/80 p-3">
-            <div className="mb-2 text-[11px] text-slate-400">英文提交正文</div>
-            <pre className="whitespace-pre-wrap break-words font-mono text-[13px] leading-6 text-slate-100">
-              {output || "生成结果将在这里显示"}
-            </pre>
-          </div>
-        </section>
+          </section>
+        </div>
       </div>
     </div>
   )

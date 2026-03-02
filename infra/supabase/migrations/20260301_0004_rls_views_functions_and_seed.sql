@@ -46,8 +46,8 @@ select
   count(distinct case when event_type = 'generate_success' then user_id end) as generate_users,
   count(distinct case when event_type = 'copy_success' then user_id end) as copy_users,
   count(distinct case when event_type = 'paywall_shown' then user_id end) as paywall_users,
-  count(distinct case when event_type = 'appeal_feedback_success' then user_id end) as feedback_success_users,
-  count(distinct case when event_type = 'appeal_feedback_fail' then user_id end) as feedback_fail_users
+  count(distinct case when event_type in ('draft_accepted', 'appeal_feedback_success') then user_id end) as feedback_success_users,
+  count(distinct case when event_type in ('draft_rejected', 'appeal_feedback_fail') then user_id end) as feedback_fail_users
 from metrics_events
 group by date_trunc('day', timestamp);
 

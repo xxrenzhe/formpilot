@@ -76,7 +76,7 @@ export default function PromptsPage() {
       <div className="hero">
         <div>
           <h2>Prompt 热更控制台</h2>
-          <p>左侧挑模板，右侧编辑并立即生效。</p>
+          <p>左侧挑模板，右侧编辑并立即生效（默认人工调权，插件反馈仅作参考）。</p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button
@@ -142,7 +142,7 @@ export default function PromptsPage() {
                 >
                   <div style={{ fontWeight: 600 }}>{row.name}</div>
                   <div className="notice">权重 {row.weight} · {row.active ? "启用" : "停用"}</div>
-                  <div className="notice">成功 {perf?.success || 0} / 失败 {perf?.fail || 0}</div>
+                  <div className="notice">采纳 {perf?.success || 0} / 拒绝 {perf?.fail || 0}</div>
                 </button>
               )
             })}
@@ -198,7 +198,7 @@ export default function PromptsPage() {
 
               {selectedPerformance && (
                 <div className="notice" style={{ marginTop: 12 }}>
-                  当前反馈: 成功 {selectedPerformance.success} / 失败 {selectedPerformance.fail}
+                  当前反馈: 采纳 {selectedPerformance.success} / 拒绝 {selectedPerformance.fail}
                 </div>
               )}
 

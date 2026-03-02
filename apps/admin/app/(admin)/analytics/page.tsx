@@ -26,8 +26,8 @@ export default function AnalyticsPage() {
     <div>
       <div className="hero">
         <div>
-          <h2>本周过审率漏斗</h2>
-          <p>围绕 Ads 申诉生成与成功/失败反馈追踪。</p>
+          <h2>本周草稿采纳漏斗</h2>
+          <p>围绕 Ads 申诉生成与草稿采纳/拒绝反馈追踪。</p>
         </div>
         <span className="badge">Prompt 在线热更</span>
       </div>
@@ -40,11 +40,11 @@ export default function AnalyticsPage() {
           <h3>{funnel?.generatedAppeals ?? "--"}</h3>
         </div>
         <div className="card">
-          <div className="notice">成功反馈数</div>
+          <div className="notice">草稿采纳数</div>
           <h3>{funnel?.successFeedback ?? "--"}</h3>
         </div>
         <div className="card">
-          <div className="notice">失败反馈数</div>
+          <div className="notice">草稿拒绝数</div>
           <h3>{funnel?.failFeedback ?? "--"}</h3>
         </div>
         <div className="card">
@@ -52,7 +52,7 @@ export default function AnalyticsPage() {
           <h3>{toPercent(funnel?.feedbackRate)}</h3>
         </div>
         <div className="card">
-          <div className="notice">成功信号强度</div>
+          <div className="notice">采纳信号强度</div>
           <h3>{toPercent(funnel?.approvalSignal)}</h3>
         </div>
       </div>
@@ -70,8 +70,8 @@ export default function AnalyticsPage() {
               <th>日期</th>
               <th>Ads 生成</th>
               <th>生成成功</th>
-              <th>反馈成功</th>
-              <th>反馈失败</th>
+              <th>采纳</th>
+              <th>拒绝</th>
             </tr>
           </thead>
           <tbody>
@@ -99,7 +99,7 @@ export default function AnalyticsPage() {
         <div className="hero" style={{ marginBottom: 12 }}>
           <div>
             <h3 style={{ margin: 0 }}>模板表现</h3>
-            <p>用于识别近期失败激增的模板。</p>
+            <p>用于识别近期拒绝率激增的模板。</p>
           </div>
         </div>
         <table className="table">
@@ -108,8 +108,8 @@ export default function AnalyticsPage() {
               <th>模板</th>
               <th>场景</th>
               <th>权重</th>
-              <th>成功</th>
-              <th>失败</th>
+              <th>采纳</th>
+              <th>拒绝</th>
             </tr>
           </thead>
           <tbody>

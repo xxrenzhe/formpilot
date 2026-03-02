@@ -8,11 +8,12 @@ interface BuildPromptInput {
   templateBody?: string
   mode: GenerateMode
   userHint: string
+  contextPool?: string
   globalContext?: string
 }
 
 export function buildSystemPrompt(input: BuildPromptInput): string {
-  const { scenario, pageContext, fieldContext, complianceProfile, templateBody, mode, userHint, globalContext } = input
+  const { scenario, pageContext, fieldContext, complianceProfile, templateBody, mode, userHint, contextPool, globalContext } = input
   const scenarioPrompt = scenario === "ads_compliance" ? buildAdsScenarioPrompt(complianceProfile, templateBody) : buildGeneralScenarioPrompt()
 
   return `${scenarioPrompt}
@@ -35,6 +36,8 @@ field_type: ${fieldContext.type}
 field_surrounding: ${fieldContext.surroundingText || ""}
 </context>
 
+${contextPool ? `<context_pool>\n${contextPool}\n</context_pool>` : ""}
+
 ${globalContext ? `<global_context>\n${globalContext}\n</global_context>` : ""}
 
 <user_hint>${userHint || "none"}</user_hint>`
@@ -49,6 +52,9 @@ Avoid invented data and unverifiable promises.`
 function buildAdsScenarioPrompt(profile?: ComplianceProfile, templateBody?: string): string {
   const template = templateBody?.trim() || DEFAULT_ADS_TEMPLATE
   return `${template}
+
+Prioritize concrete facts from <context_pool> when provided.
+Use <compliance_facts> as supplemental signals, not mandatory prerequisites.
 
 <compliance_facts>
 legal_name: ${profile?.legalName || "MISSING"}

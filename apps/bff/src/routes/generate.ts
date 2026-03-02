@@ -51,6 +51,7 @@ const generateSchema = z.object({
     .optional(),
   userHint: z.string().optional(),
   mode: z.enum(["shortText", "longDoc"]),
+  contextPool: z.string().optional(),
   useGlobalContext: z.boolean().optional(),
   globalContext: z.string().optional()
 })
@@ -85,21 +86,26 @@ export async function generateHandler(c: Context): Promise<Response> {
   const payload = generateSchema.safeParse(await c.req.json())
   if (!payload.success) {
     return jsonError(c, 400, {
-      errorCode: "FORBIDDEN",
+      errorCode: "INVALID_PARAMS",
       message: "参数错误"
     })
   }
 
   let userRecord = await getOrCreateUserRecord(authUser.id, authUser.email)
   const deviceId = c.req.header("x-device-id") || ""
-  await ensureDeviceCreditGrant({ userId: userRecord.id, deviceId })
-  userRecord = await getOrCreateUserRecord(authUser.id, authUser.email)
+  const grantResult = await ensureDeviceCreditGrant({
+    userId: userRecord.id,
+    deviceId,
+    currentCredits: userRecord.credits
+  })
+  userRecord = {
+    ...userRecord,
+    credits: grantResult.credits
+  }
 
   const scenario = resolveScenario(payload.data)
-  const profile =
-    payload.data.complianceSnapshot || (scenario === "ads_compliance" ? await getComplianceProfile(userRecord.id) : null)
-  const missingFields = scenario === "ads_compliance" ? findComplianceMissingFields(profile || undefined) : []
   const cost = resolveCreditCost(payload.data)
+  const hasContextPool = Boolean(payload.data.contextPool?.trim())
 
   if (!hasEnoughCredits(userRecord.credits, cost.cost)) {
     return jsonError(c, 402, {
@@ -121,6 +127,28 @@ export async function generateHandler(c: Context): Promise<Response> {
     })
   }
 
+  const shouldFetchProfile =
+    scenario === "ads_compliance" &&
+    !payload.data.complianceSnapshot &&
+    !(payload.data.mode === "longDoc" && hasContextPool)
+
+  const [profile, selectedTemplate] = await Promise.all([
+    payload.data.complianceSnapshot
+      ? Promise.resolve(payload.data.complianceSnapshot)
+      : shouldFetchProfile
+        ? getComplianceProfile(userRecord.id)
+        : Promise.resolve(null),
+    getWeightedPromptTemplate(scenario)
+  ])
+  const missingFields =
+    scenario === "ads_compliance" && !(payload.data.mode === "longDoc" && hasContextPool)
+      ? findComplianceMissingFields(profile || undefined)
+      : []
+
+  const contextPoolLimit = Number(process.env.CONTEXT_POOL_LIMIT || 12000)
+  const cleanedContextPool = payload.data.contextPool
+    ? summarizeContext(payload.data.contextPool, contextPoolLimit).summary
+    : undefined
   const allowGlobalContext = payload.data.useGlobalContext !== false
   const contextLimit = Number(process.env.GLOBAL_CONTEXT_LIMIT || 8000)
   const cleanedContext =
@@ -128,7 +156,6 @@ export async function generateHandler(c: Context): Promise<Response> {
       ? summarizeContext(payload.data.globalContext, contextLimit).summary
       : undefined
 
-  const selectedTemplate = await getWeightedPromptTemplate(scenario)
   const systemPrompt = buildSystemPrompt({
     scenario,
     pageContext: payload.data.pageContext,
@@ -137,6 +164,7 @@ export async function generateHandler(c: Context): Promise<Response> {
     templateBody: selectedTemplate?.templateBody,
     mode: payload.data.mode,
     userHint: payload.data.userHint || "",
+    contextPool: cleanedContextPool,
     globalContext: cleanedContext
   })
   const userPrompt = buildUserPrompt(payload.data.mode)

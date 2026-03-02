@@ -52,31 +52,21 @@ export async function tryDeductCredits(userId: string, cost: number): Promise<bo
 
 export async function addCredits(userId: string, amount: number): Promise<number> {
   const safeAmount = Math.max(0, Math.floor(amount))
-  if (!safeAmount) {
-    const { data } = await supabase.from("users").select("credits").eq("id", userId).maybeSingle()
-    return Number(data?.credits || 0)
-  }
-
-  const { error } = await supabase.rpc("increment_user_credits", {
+  const { data, error } = await supabase.rpc("increment_user_credits", {
     p_user_id: userId,
     p_amount: safeAmount
   })
   if (error) throw error
-
-  const { data, error: queryError } = await supabase.from("users").select("credits").eq("id", userId).single()
-  if (queryError) throw queryError
-  return Number(data.credits || 0)
+  return Number(data || 0)
 }
 
 export async function getLifetimeCreditsUsed(userId: string): Promise<number> {
-  const { data, error } = await supabase
-    .from("usage_logs")
-    .select("credits_cost")
-    .eq("user_id", userId)
-    .eq("success", true)
+  const { data, error } = await supabase.rpc("get_lifetime_credits_used_sum", {
+    p_user_id: userId
+  })
 
   if (error) throw error
-  return (data || []).reduce((sum, row) => sum + Number(row.credits_cost || 0), 0)
+  return Number(data || 0)
 }
 
 export async function recordUsage(params: {

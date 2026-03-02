@@ -461,17 +461,7 @@ export default function FormPilotUi() {
 
   const openLongDocWorkspace = useCallback(() => {
     const url = chrome.runtime.getURL("options.html#longdoc")
-    if (chrome.windows?.create) {
-      chrome.windows.create({
-        url,
-        type: "popup",
-        width: 1160,
-        height: 780,
-        focused: true
-      })
-      return
-    }
-    chrome.runtime.openOptionsPage()
+    window.open(url, "_blank", "noopener,noreferrer")
   }, [])
 
   const handleRedeemCode = useCallback(async () => {
@@ -530,6 +520,7 @@ export default function FormPilotUi() {
         recharging={recharging}
         iconPosition={iconPosition}
         panelPosition={panelPosition}
+        isLongDocField={activeField ? detectLongDoc(activeField) : false}
         rootRef={panelRootRef}
         onOpenPanel={() => activateField(document.activeElement as HTMLElement | null, "bubble")}
         onClosePanel={() => setPanelOpen(false)}
@@ -573,6 +564,7 @@ export default function FormPilotUi() {
       recharging={recharging}
       iconPosition={iconPosition}
       panelPosition={panelPosition}
+      isLongDocField={activeField ? detectLongDoc(activeField) : false}
       rootRef={panelRootRef}
       onOpenPanel={() => activateField(document.activeElement as HTMLElement | null, "bubble")}
       onClosePanel={() => setPanelOpen(false)}

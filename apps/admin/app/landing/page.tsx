@@ -11,7 +11,7 @@ const VALUE_ITEMS = [
   },
   {
     title: "动态 Prompt 炼丹炉",
-    description: "基于真实成功/失败反馈自动调权，让每次申诉都吃到最新实战策略。"
+    description: "插件采纳/拒绝仅作表层质量信号，核心权重默认由管理员人工调优。"
   }
 ]
 
@@ -37,15 +37,14 @@ export default function LandingPage() {
       <section className={styles.shell}>
         <header className={styles.hero}>
           <div className={styles.heroCopy}>
-            <span className={styles.kicker}>FORMPILOT ADS COMPLIANCE</span>
+            <span className={styles.kicker}>FORMPILOT ADS VERIFICATION & COMPLIANCE</span>
             <h1>
-              挽救您的 Google Ads 账号
+              拿下高难度企业认证与封号申诉
               <br />
-              从“补材料”升级到“过审核”
+              从“补材料”升级到“过风控”
             </h1>
             <p>
-              100% 对齐 Google 审核风控语义，端侧极密脱敏，叠加高胜率 Prompt 引擎。
-              目标不是“写得漂亮”，而是让账号尽快恢复投放。
+              100% 对齐 Google 审核风控语义，硬解长篇业务运营验证表单（Verify your business operations）。端侧极密脱敏，叠加高胜率 Prompt 引擎。目标不是“写得漂亮”，而是让账号直接恢复投放与获得高级权限。
             </p>
             <div className={styles.ctaRow}>
               <a href="/login" className={styles.primaryCta}>
@@ -57,6 +56,9 @@ export default function LandingPage() {
             </div>
           </div>
           <div className={styles.heroPanel}>
+            <div className={styles.heroDemoVideo}>
+              <span>[ 高难度表单秒级突破演示 GIF / Video ]</span>
+            </div>
             <div className={styles.statGrid}>
               <article className={styles.statCard}>
                 <div className={styles.statLabel}>可用模式</div>
@@ -68,7 +70,7 @@ export default function LandingPage() {
               </article>
               <article className={styles.statCard}>
                 <div className={styles.statLabel}>模板调权</div>
-                <div className={styles.statValue}>成功 +0.15 / 失败 -0.25</div>
+                <div className={styles.statValue}>默认人工调权（可选自动微调）</div>
               </article>
               <article className={styles.statCard}>
                 <div className={styles.statLabel}>交付目标</div>

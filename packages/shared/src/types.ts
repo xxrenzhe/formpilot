@@ -46,6 +46,7 @@ export interface GenerateRequest {
   complianceSnapshot?: ComplianceProfile
   userHint?: string
   mode: GenerateMode
+  contextPool?: string
   useGlobalContext?: boolean
   globalContext?: string
 }
@@ -54,6 +55,7 @@ export interface GenerateErrorResponse {
   errorCode:
     | "UNAUTHORIZED"
     | "FORBIDDEN"
+    | "INVALID_PARAMS"
     | "USAGE_LIMIT"
     | "MISSING_CONFIG"
     | "INVALID_CODE"
@@ -83,8 +85,8 @@ export const METRIC_EVENT_TYPES = [
   "longdoc_generate_success",
   "longdoc_copy_success",
   "longdoc_download",
-  "appeal_feedback_success",
-  "appeal_feedback_fail"
+  "draft_accepted",
+  "draft_rejected"
 ] as const
 
 export type MetricEventType = (typeof METRIC_EVENT_TYPES)[number]

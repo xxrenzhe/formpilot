@@ -12,6 +12,8 @@
 4. `migrations/20260301_0004_rls_views_functions_and_seed.sql`
 5. `migrations/20260302_0005_legacy_cleanup.sql`
 6. `migrations/20260302_0006_drop_users_plan.sql`
+7. `migrations/20260302_0007_credit_rpc_and_usage_sum.sql`
+8. `migrations/20260302_0008_feedback_event_semantics.sql`
 
 ## 启动自动执行（已接入 BFF）
 
@@ -47,7 +49,7 @@ BFF 现已在启动阶段自动按顺序执行迁移。对应实现见：
 1. `users` 表存在并可读写 `credits`。
 2. `device_credit_claims`、`compliance_profiles`、`prompt_templates`、`prompt_feedback` 表存在。
 3. `usage_logs` 包含 `credits_cost/cost_tier/prompt_template_id/scenario`。
-4. `increment_user_credits` 与 `decrement_user_credits` RPC 可调用。
+4. `increment_user_credits`（返回最新余额）、`decrement_user_credits`、`get_lifetime_credits_used_sum` RPC 可调用。
 5. `prompt_templates` 至少包含 `Default ADS Compliance v1` 与 `Default General v1`。
 6. `users` 表中的 `stripe_customer_id/stripe_subscription_id/current_period_end` 已移除。
 7. `personas` 表已移除。

@@ -26,7 +26,7 @@ export async function adminAnalyticsHandler(c: Context): Promise<Response> {
   const { data: metricRows, error: metricError } = await supabase
     .from("metrics_events")
     .select("timestamp,event_type")
-    .in("event_type", ["appeal_feedback_success", "appeal_feedback_fail"])
+    .in("event_type", ["draft_accepted", "draft_rejected", "appeal_feedback_success", "appeal_feedback_fail"])
     .gte("timestamp", since)
   if (metricError) return jsonError(c, 500, { errorCode: "FORBIDDEN", message: "查询失败" })
 
@@ -45,8 +45,8 @@ export async function adminAnalyticsHandler(c: Context): Promise<Response> {
   ;(metricRows || []).forEach((row) => {
     const key = dayKeyFromIso(row.timestamp || "")
     const current = feedbackByDay.get(key) || { success: 0, fail: 0 }
-    if (row.event_type === "appeal_feedback_success") current.success += 1
-    if (row.event_type === "appeal_feedback_fail") current.fail += 1
+    if (row.event_type === "draft_accepted" || row.event_type === "appeal_feedback_success") current.success += 1
+    if (row.event_type === "draft_rejected" || row.event_type === "appeal_feedback_fail") current.fail += 1
     feedbackByDay.set(key, current)
   })
 

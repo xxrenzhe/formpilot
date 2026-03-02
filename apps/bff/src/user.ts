@@ -52,11 +52,12 @@ export async function getOrCreateUserRecord(userId: string, email: string | null
 export async function ensureDeviceCreditGrant(params: {
   userId: string
   deviceId?: string | null
+  currentCredits: number
 }): Promise<{ granted: boolean; credits: number; status: "granted" | "already_claimed" | "missing_device" }> {
   const deviceId = (params.deviceId || "").trim()
+  const currentCredits = Math.max(Number(params.currentCredits) || 0, 0)
   if (!deviceId) {
-    const user = await getOrCreateUserRecord(params.userId, null)
-    return { granted: false, credits: user.credits, status: "missing_device" }
+    return { granted: false, credits: currentCredits, status: "missing_device" }
   }
 
   const { data, error } = await supabase
@@ -74,8 +75,7 @@ export async function ensureDeviceCreditGrant(params: {
   }
 
   if (!data) {
-    const user = await getOrCreateUserRecord(params.userId, null)
-    return { granted: false, credits: user.credits, status: "already_claimed" }
+    return { granted: false, credits: currentCredits, status: "already_claimed" }
   }
 
   const credits = await addCredits(params.userId, FREE_SIGNUP_CREDITS)

@@ -66,6 +66,8 @@ begin
       'longdoc_generate_success',
       'longdoc_copy_success',
       'longdoc_download',
+      'draft_accepted',
+      'draft_rejected',
       'appeal_feedback_success',
       'appeal_feedback_fail'
     )
@@ -84,6 +86,8 @@ begin
           'longdoc_generate_success',
           'longdoc_copy_success',
           'longdoc_download',
+          'draft_accepted',
+          'draft_rejected',
           'appeal_feedback_success',
           'appeal_feedback_fail'
         )

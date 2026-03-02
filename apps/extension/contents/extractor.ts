@@ -6,9 +6,19 @@ const QUESTION_KEYWORDS = [
   "document",
   "pdf",
   "file",
+  "attachment",
   "portfolio",
   "design"
 ]
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+const LONG_DOC_KEYWORD_PATTERN = new RegExp(
+  `\\b(${QUESTION_KEYWORDS.map((keyword) => escapeRegExp(keyword)).join("|")})\\b`,
+  "i"
+)
 
 export function extractPageContext(): PageContext {
   const title = document.title || ""
@@ -65,6 +75,6 @@ export function getSurroundingText(target: HTMLElement): string {
 }
 
 export function detectLongDoc(field: FieldContext): boolean {
-  const text = `${field.label} ${field.placeholder} ${field.surroundingText || ""}`.toLowerCase()
-  return QUESTION_KEYWORDS.some((keyword) => text.includes(keyword))
+  const text = `${field.label} ${field.placeholder} ${field.surroundingText || ""}`
+  return LONG_DOC_KEYWORD_PATTERN.test(text)
 }

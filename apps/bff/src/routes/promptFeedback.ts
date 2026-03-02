@@ -32,7 +32,7 @@ export async function promptFeedbackHandler(c: Context): Promise<Response> {
     note: payload.data.note
   })
 
-  const metricType = payload.data.outcome === "success" ? "appeal_feedback_success" : "appeal_feedback_fail"
+  const metricType = payload.data.outcome === "success" ? "draft_accepted" : "draft_rejected"
   const { error } = await supabase.from("metrics_events").insert({
     user_id: authUser.id,
     event_type: metricType,
